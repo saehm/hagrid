@@ -22,7 +22,7 @@ function gamma([px, py], G) {
     } else if (min_index == 3) {
         return [px, G.y2];
     }
-}
+} // test
 
 function line_intersects_rectangle(line, [rx, ry, rw, rh]) {
     const l = line_crosses_line(line, [[rx, ry], [rx, ry+rh]]);
