@@ -1,7 +1,9 @@
 export { version } from '../package.json';
 export * from "./hilbert.js";
-export * from "./gosper.js";
-
+export * from "./gosper2.js";
+export * from "./dgrid.js";
+export * from "./nmap.js";
+export * from "./cmds.js";
 /*export default function() {
     console.log(`version ${version}`);
     hilbert_encode([1,1], 1);

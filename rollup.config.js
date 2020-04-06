@@ -1,5 +1,6 @@
 import json from '@rollup/plugin-json';
 import {terser} from 'rollup-plugin-terser';
+import resolve from 'rollup-plugin-node-resolve';
 
 export default {
   input: 'src/main.js',
@@ -14,5 +15,6 @@ export default {
     name: 'hagrid',
     plugins: [terser()]
   }],
-  plugins: [ json() ]
+  plugins: [ json(), resolve() ],
+  external:[ "d3Delaunay" ],
 };
