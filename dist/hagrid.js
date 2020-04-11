@@ -4,7 +4,7 @@
     (global = global || self, factory(global.hagrid = {}));
 }(this, (function (exports) { 'use strict';
 
-    var version = "0.0.2";
+    var version = "0.1.0";
 
     function rotate(size, px, py, rx, ry) {
         if (ry == 0) {
@@ -19,7 +19,7 @@
 
     function hilbert_encode([px, py], size) {
         let n = 0;
-        for (let s = size >> 1; s > 0; s >>= 1) {
+        for (let s = size / 2; s > 0; s /= 2) {
             const rx = (px & s) > 0;
             const ry = (py & s) > 0;
             n += (s ** 2) * ((3 * rx) ^ ry);
@@ -31,7 +31,7 @@
     function hilbert_decode(n, size) {
         let t = n;
         let [px, py] = [0, 0];
-        for (let s = 1; s < size; s <<= 1) {
+        for (let s = 1; s < size; s *= 2) {
             const rx = 1 & (t / 2);
             const ry = 1 & (t ^ rx);
             [px, py] = rotate(s, px, py, rx, ry);
@@ -40,6 +40,63 @@
             t = t >> 2;
         }
         return [px, py];
+    }
+
+    function distance([ax, ay], [bx, by]) {
+        return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+    }
+
+    function hilbert_collision_1(P, p, d, i, size) {
+        const distance_increment = distance(d, hilbert_decode(p + 1, size));
+        const distance_decrement = distance(d, hilbert_decode(p - 1, size));
+        const direction = distance_increment < distance_decrement ? 1 : -1; 
+        //const direction = 1
+        let flying = i;    
+        while (P.has(p)) {
+            // swap elements
+            const tmp = P.get(p);
+            //P.delete(p);
+            P.set(p, flying);
+            flying = tmp;
+            // hop to next place in direction
+            p += direction;
+        }
+        P.set(p, flying);
+    }
+
+    function hilbert_collision_2(P, p, i) {
+        while (P.has(p)) {
+            p += 1;
+        }
+        P.set(p, i);
+    }
+
+    async function gridify_hilbert(D, {level, collision}) {
+        const size = 2 ** level;
+        const N = D.length;
+        const P = new Map();
+        const Y = new Array(N).fill(0);
+
+        D.forEach((d, i) => {
+            const [x, y] = [Math.round(d[0]), Math.round(d[1])];
+            let p = hilbert_encode([x, y], size);
+            if (P.has(p)) { // collision detected
+                // distinguish direction
+                if (collision == "new") {
+                    hilbert_collision_1(P, p, d, i, size);
+                } else {
+                    hilbert_collision_2(P, p, i);
+                }
+            } else {
+                P.set(p, i);
+            }
+        });
+
+        for (const [p, i] of P) {
+            Y[i] = hilbert_decode(p, size);
+        }
+
+        return Y;
     }
 
     /*
@@ -287,7 +344,7 @@
         return [sorted.slice(0, pos), sorted.slice(pos)];
     }
 
-    function gridify_dgrid(D, size) {
+    async function gridify_dgrid(D, size) {
         console.log(size);
         const N = D.length;
         let rows;
@@ -324,8 +381,7 @@
             let Rb = Object.assign({}, R);
             if (direction) {
                 const [wRa, wRb] = sizes(Da, Db, R.width);
-                const bh = (Da[Da.length - 1][0] - Db[0][0]) / 2;
-                console.log("bh", bh, Da, Db);
+                const bh = (Da[Da.length - 1][0] + Db[0][0]) / 2;
                 Ra.width = bh - R.x;
                 Rb.x += Ra.width; 
                 Rb.width = R.width - Ra.width;
@@ -341,8 +397,7 @@
                 nmap(G, affine_transform_points(Db, HRb), affine_transform_rect(Rb, HRb), !direction);
             } else {
                 const [hRa, hRb] = sizes(Da, Db, R.height);
-                const bv = (Da[Da.length - 1][1] - Db[0][1]) / 2;
-                console.log("bv", bv);
+                const bv = (Da[Da.length - 1][1] + Db[0][1]) / 2;
                 Ra.height = bv - R.y;
                 Rb.y = R.y + Ra.height; 
                 Rb.height = R.height - Ra.height;
@@ -469,7 +524,7 @@
         return A.sort((a, b) => a.dist - b.dist);
     }
 
-    function gridify_nmap(D, parameters) {
+    async function gridify_nmap(D, parameters) {
         let G = [];
         console.log(parameters);
         if (!"BB" in parameters || parameters.BB == null) {
@@ -1593,117 +1648,125 @@
       }
     }
 
-    function gamma$1([px, py], G) {
-        const lx = Math.abs(G.x1 - px); // left border
-        const rx = Math.abs(G.x2 - px); // right border
-        const ly = Math.abs(G.y1 - py); // top border
-        const ry = Math.abs(G.y2 - py); // bottom border
-        let min_value = Infinity;
-        let min_index = null;
-        [lx, rx, ly, ry].forEach((d, i) => {
-            if (d < min_value) {
-                min_value = d;
-                min_index = i;
+    // gamma puts a point outside the boundary back inside,
+    // 
+    function gamma$1([px, py], {x1, x2, y1, y2}) {
+        let [nx, ny] = [px, py];
+        if (px < x1) nx = x1;
+        if (px > x2) nx = x2;
+        if (py < y1) ny = y1;
+        if (py > y2) ny = y2;
+        return [nx, ny]
+    }
+
+    function distance$1([ax, ay], [bx, by]) {
+        return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+    }
+
+    function compute_overlap([px, py], [qx, qy], s) {
+        const dx = Math.abs(px - qx);
+        const dy = Math.abs(py - qy);
+        if (dx < s || dy < s) {
+            const ox = Math.abs(Math.min(dx - s, 0));
+            const oy = Math.abs(Math.min(dy - s, 0));
+            const dd = distance$1([px, py], [qx, qy]);
+            if (ox < oy) {
+                return (dd * ox) / dx;
+            } else if (oy <= ox) {
+                return (dd * oy) / dy;
             }
-        });
-        if (min_index == 0) {
-            return [G.x1, py];
-        } else if (min_index == 1) {
-            return [G.x2, py];
-        } else if (min_index == 2) {
-            return [px, G.y1];
-        } else if (min_index == 3) {
-            return [px, G.y2];
-        }
-    } // test
-
-    function line_intersects_rectangle(line, [rx, ry, rw, rh]) {
-        const l = line_crosses_line(line, [[rx, ry], [rx, ry+rh]]);
-        const r = line_crosses_line(line, [[rx + rw, ry], [rx + rw, ry + rh]]);
-        const t = line_crosses_line(line, [[rx, ry], [rx + rw, ry]]);
-        const b = line_crosses_line(line, [[rx, ry + rh], [rx + rw, ry + rh]]);
-
-        const intersections = [l, r, t, b].filter(d => !!d);
-        if (intersections.length != 2) {
-            return 0;
-        } else if (intersections.length == 1) {
-            const [px, py] = line[1];
-            const [ix, iy] = intersections[0];
-            return Math.sqrt(Math.pow(px - ix, 2) + Math.pow(py - iy, 2));
         } else {
-            //console.log(intersections)
-            const [[i0x, i0y], [i1x, i1y]] = intersections;
-            return Math.sqrt(Math.pow(i1x - i0x, 2) + Math.pow(i1y - i0y, 2));
+            return 0
         }
     }
 
-    function line_crosses_line([[ax0, ay0], [ax1, ay1]], [[bx0, by0], [bx1, by1]]) {
-        const uA = ((bx1-bx0)*(ay0-by0) - (by1-by0)*(ax0-bx0)) / ((by1-by0)*(ax1-ax0) - (bx1-bx0)*(ay1-ay0));
-        const uB = ((ax1-ax0)*(ay0-by0) - (ay1-ay0)*(ax0-bx0)) / ((by1-by0)*(ax1-ax0) - (bx1-bx0)*(ay1-ay0));
-        if (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1) {
-            return [ax1 + (uA * (ax1-ax0)), ay1 + (uA * (ay1-ay0))];
-        } else {
-            return null;
-        }
-    }
-
-    function gridify_cmds(D, Gamma, size, alpha=1) {
-        const N = D.length;
-        const delaunay = Delaunay.from(D);
-        const proximity_graph = D.map((d, i) => {
+    // computes all the stuff needed for cmds
+    function create_proximity_graph(A, D, s) {
+        const delaunay = Delaunay.from(A);
+        return A.map((d, i) => {
             return [...delaunay.neighbors(i)].map((j) => {
-                const neighbor = D[j];
+                const pd = D[i];
+                const qd = D[j];
+                const pa = A[i];
+                const qa = A[j];
+                // maybe better to save
+                const odistance = distance$1(pd, qd);
+                const overlap = compute_overlap(pa, qa, s);
                 return {
                     "source": i,
                     "target": j,
-                    "distance": Math.sqrt(Math.pow(d[0] - neighbor[0], 2) + Math.pow(d[1] - neighbor[1], 2))
+                    "distance": odistance,
+                    "overlap": overlap,
+                    "delta": odistance + overlap
                 }
             })
-        }).flat();
+        })
+        .flat()
+    }
 
-        const [kw, kh] = size;
+    // end condition is
+    // no overlaps anymore and all points are inside the boundaries
+    function end_condition(proximity_graph, G, {x1, x2, y1, y2}) {
+        const sum_overlaps = proximity_graph
+            .map(d => d.overlap)
+            .reduce((a, b) => a + b);
 
-        let deltas = new Array(N).fill(0);
-        deltas = deltas.map(() => new Array(N).fill(0));
+        const inside_Gamma = G
+            .map(([px, py]) => px >= x1 && px <= x2 && py >= y1 && py <= y2)
+            .reduce((a, b) => a && b);
 
-        // copy array
-        let G = D.map(([x, y]) => [x, y, 0, 0]);
+        return sum_overlaps == 0 && inside_Gamma
+    }
 
-        proximity_graph.forEach(({source: i, target: j, distance}) => {
-            const l = distance;//Math.sqrt(Math.pow(pjx - pix, 2) + Math.pow(pjy - piy, 2));
-            let d = 0;
-            for (let k = 0; k < N; ++k) {
-                if (k == i || k == j) continue;
-                const kx = G[k][0] - kw / 2;
-                const ky = G[k][1] - kh / 2;
-                d += line_intersects_rectangle([G[i], G[j]], [kx, ky, kw, kh]);
-            }
-            deltas[i][j] = d + l;
-        }); 
+    async function gridify_cmds(D, parameters) {
+        const N = D.length;
+        const Gamma = parameters.Gamma;
+        const [kw, kh] = parameters.size;
+        const alpha = parameters.alpha ? parameters.alpha : .1;
+        let max_iter = parameters.max_iter ? parameters.max_iter : 5000;
+        
+        // construct proximity graph and 
+        // calculate the ideal distances according to (3)
+        let proximity_graph = create_proximity_graph(D, D, kw);
+        // copy D
+        let G = D.map(([x, y]) => [x, y]);
+        
+        do {
+            // update step according to (6)
+            let nominator = new Array(N).fill(0);
+            nominator = nominator.map(() => [0, 0]);
+            let denominator = new Array(N).fill(0);
 
-        let nominator = new Array(N).fill(0);
-        nominator = nominator.map(() => [0, 0]);
-        let denominator = new Array(N).fill(0);
+            proximity_graph.forEach(({source: i, target: j, distance, delta}) => {
+                let pi = G[i];
+                let pj = G[j];
+                const wij = (1/Math.pow(delta, 2));
+                nominator[i][0] += (wij * (pj[0] + delta * ((pi[0] - pj[0]) / distance)));
+                nominator[i][1] += (wij * (pj[1] + delta * ((pi[1] - pj[1]) / distance)));
+                denominator[i] += wij;
+            });
 
-        proximity_graph.forEach(({source: i, target: j, distance}) => {
-            let pi = G[i];
-            let pj = G[j];
-            let dij = deltas[i][j];
-            const wij = (1/(dij**2));
-            nominator[i][0] += wij * (pj[0] + dij * ((pi[0] - pj[0]) / distance));
-            nominator[i][1] += wij * (pj[1] + dij * ((pi[1] - pj[1]) / distance));
-            denominator[i] += wij;
-        });
+            G = G.map(([px, py], i) => {
+                const gamma_i = gamma$1([px, py], Gamma);
+                return [
+                    (nominator[i][0] + alpha * gamma_i[0]) / (denominator[i] + alpha),
+                    (nominator[i][1] + alpha * gamma_i[1]) / (denominator[i] + alpha),
+                ]
+            });
+            // reconstruct the proximity graph
+            // with the new layout
 
-        G = G.map(([px, py], i) => {
-            const gamma_i = gamma$1([px, py], Gamma);
+            // should augment G with edges from pairs of nodes that overlap? not done
+            proximity_graph = create_proximity_graph(G, D, kw);
+        } while (--max_iter >= 0 && !end_condition(proximity_graph, G, Gamma))
+        
+        // round to grid
+        G = G.map(([px, py]) => {
             return [
-                nominator[i][0] + alpha * gamma_i[0] / denominator[i],
-                nominator[i][1] + alpha * gamma_i[1] / denominator[i],
-            ]
+                Math.floor((px - kw / 2) / kw) * kw + (kw / 2),
+                Math.floor((py - kh / 2) / kh) * kh + (kh / 2),
+            ];
         });
-
-
         return G
     }
 
@@ -1713,6 +1776,7 @@
     exports.gridify_cmds = gridify_cmds;
     exports.gridify_dgrid = gridify_dgrid;
     exports.gridify_gosper = gridify_gosper;
+    exports.gridify_hilbert = gridify_hilbert;
     exports.gridify_nmap = gridify_nmap;
     exports.hilbert_decode = hilbert_decode;
     exports.hilbert_encode = hilbert_encode;

@@ -12,8 +12,7 @@ function nmap(G, P, R, direction=true) {
         let Rb = Object.assign({}, R);
         if (direction) {
             const [wRa, wRb] = sizes(Da, Db, R.width);
-            const bh = (Da[Da.length - 1][0] - Db[0][0]) / 2;
-            console.log("bh", bh, Da, Db)
+            const bh = (Da[Da.length - 1][0] + Db[0][0]) / 2;
             Ra.width = bh - R.x;
             Rb.x += Ra.width; 
             Rb.width = R.width - Ra.width;
@@ -29,8 +28,7 @@ function nmap(G, P, R, direction=true) {
             nmap(G, affine_transform_points(Db, HRb), affine_transform_rect(Rb, HRb), !direction);
         } else {
             const [hRa, hRb] = sizes(Da, Db, R.height);
-            const bv = (Da[Da.length - 1][1] - Db[0][1]) / 2;
-            console.log("bv", bv)
+            const bv = (Da[Da.length - 1][1] + Db[0][1]) / 2;
             Ra.height = bv - R.y;
             Rb.y = R.y + Ra.height; 
             Rb.height = R.height - Ra.height;
@@ -157,7 +155,7 @@ function calcDist(A, B) {
     return A.sort((a, b) => a.dist - b.dist);
 }
 
-export function gridify_nmap(D, parameters) {
+export async function gridify_nmap(D, parameters) {
     let G = [];
     console.log(parameters)
     if (!"BB" in parameters || parameters.BB == null) {

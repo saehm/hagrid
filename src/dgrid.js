@@ -31,7 +31,7 @@ function split(P, dim, pos) {
     return [sorted.slice(0, pos), sorted.slice(pos)];
 }
 
-export function gridify_dgrid(D, size) {
+export async function gridify_dgrid(D, size) {
     console.log(size)
     const N = D.length;
     let rows;
