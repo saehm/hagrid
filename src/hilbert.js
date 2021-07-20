@@ -1,3 +1,5 @@
+import { get_scales, distance } from "./utils.js";
+
 function rotate(size, px, py, rx, ry) {
     if (ry == 0) {
         if (rx == 1) {
@@ -9,6 +11,11 @@ function rotate(size, px, py, rx, ry) {
     return [px, py];
 }
 
+/**
+ * 
+ * @param {*} param0 
+ * @param {*} size 
+ */
 export function hilbert_encode([px, py], size) {
     let n = 0;
     for (let s = size / 2; s > 0; s /= 2) {
@@ -34,57 +41,58 @@ export function hilbert_decode(n, size) {
     return [px, py];
 }
 
-function distance([ax, ay], [bx, by]) {
-    return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+function hilbert_collision(P, p, d, i, size) {
+    const e = size ** 2;
+    const valid = (p) => p >= 0 && p <= e;
+    let pl = p;
+    let pr = p;
+    while (true) {
+        ++pl; --pr;
+        const el = !P.has(pl);
+        const er = !P.has(pr);
+        const vl = valid(pl);
+        const vr = valid(pr);
+        if (vl && el && !er) {
+            P.set(pl, i);
+            return;
+        } else if (!el && vr && er) {
+            P.set(pr, i);
+            return;
+        } else if (el && er) {
+            if (vl && vr) {
+                let dl = distance(d, hilbert_decode(pl, size));
+                let dr = distance(d, hilbert_decode(pr, size));
+                P.set(dl < dr ? pl : pr, i);
+                return;
+            } else if (vl) {
+                P.set(pl, i);
+                return;
+            } else if (vr) {
+                P.set(pr, i);
+                return;
+            }
+        }
+    } 
 }
 
-function hilbert_collision_1(P, p, d, i, size) {
-    const distance_increment = distance(d, hilbert_decode(p + 1, size));
-    const distance_decrement = distance(d, hilbert_decode(p - 1, size));
-    const direction = distance_increment < distance_decrement ? 1 : -1; 
-    //const direction = 1
-    let flying = i;    
-    while (P.has(p)) {
-        // swap elements
-        const tmp = P.get(p);
-        //P.delete(p);
-        P.set(p, flying);
-        flying = tmp;
-        // hop to next place in direction
-        p += direction;
-    }
-    P.set(p, flying);
-}
-
-function hilbert_collision_2(P, p, i) {
-    while (P.has(p)) {
-        p += 1
-    }
-    P.set(p, i)
-}
-
-export async function gridify_hilbert(D, {level, collision}) {
+export function gridify_hilbert(D, {level, keep_aspect_ratio=false}) {
     const size = 2 ** level;
+    const curveLength = 4 ** level;
     const N = D.length;
     const P = new Map();
     const Y = new Array(N).fill(0);
-
+    const scales = get_scales(D, [[0, size - 1], [0, size - 1]], {keep_aspect_ratio: keep_aspect_ratio, round: true});
     D.forEach((d, i) => {
-        const [x, y] = [Math.round(d[0]), Math.round(d[1])];
+        const [x, y] = scales.map(s => s(d));
         let p = hilbert_encode([x, y], size);
         if (P.has(p)) { // collision detected
-            // distinguish direction
-            if (collision == "new") {
-                hilbert_collision_1(P, p, d, i, size);
-            } else {
-                hilbert_collision_2(P, p, i)
-            }
+            hilbert_collision(P, p, [x, y], i, curveLength);
         } else {
             P.set(p, i);
         }
     })
 
-    for (const [p, i] of P) {
+    for (const [p, i] of P.entries()) {
         Y[i] = hilbert_decode(p, size);
     }
 

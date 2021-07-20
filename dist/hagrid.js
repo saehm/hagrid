@@ -1,12 +1,97 @@
 (function (global, factory) {
     typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
     typeof define === 'function' && define.amd ? define(['exports'], factory) :
-    (global = global || self, factory(global.hagrid = {}));
+    (global = typeof globalThis !== 'undefined' ? globalThis : global || self, factory(global.hagrid = {}));
 }(this, (function (exports) { 'use strict';
 
     var version = "0.1.0";
 
-    function rotate(size, px, py, rx, ry) {
+    function get_bounds(A) {
+        let min_x = Infinity;
+        let max_x = -Infinity;
+        let min_y = Infinity;
+        let max_y = -Infinity;
+
+        A.forEach(([x, y, i]) => {
+            min_x = Math.min(min_x, x);
+            max_x = Math.max(max_x, x);
+            min_y = Math.min(min_y, y);
+            max_y = Math.max(max_y, y);
+        });
+
+        return {
+            "x": min_x,
+            "y": min_y,
+            "width": max_x - min_x,
+            "height": max_y - min_y,
+        }
+    }
+
+    function remap([x, y], [x1, y1, w1, h1], [x2, y2, w2, h2]) {
+        return [
+            (x - x1) / w1 * w2 + x2, 
+            (y - y1) / h1 * h2 + y2,
+        ];
+    }
+
+
+    function get_scales(data, [[X_min, X_max], [Y_min, Y_max]], {
+        keep_aspect_ratio = false, 
+        round = true, 
+        x = d => d[0], 
+        y = d => d[1]
+    }) {
+        const X_span = X_max - X_min;
+        const Y_span = Y_max - Y_min; 
+        let [x_min, x_max] = extent$1(data, x);
+        let [y_min, y_max] = extent$1(data, y);
+        let x_span = x_max - x_min;
+        let y_span = y_max - y_min;
+
+        if (keep_aspect_ratio) {
+            let o;
+            if (x_span > y_span) {
+                o = (x_span - y_span) / 2;
+                y_min -= o;
+                y_max += o;
+            } else {
+                o = (y_span - x_span) / 2;
+                x_min -= o;
+                x_max += o;
+            }
+        }
+
+        const f = round ? Math.round : d => d;
+        const x_scale = d => f((x(d) - x_min) / x_span * X_span + X_min);
+        const y_scale = d => f((y(d) - y_min) / y_span * Y_span + Y_min);
+        return [x_scale, y_scale];
+    }
+
+    function extent$1(data, accessor) {
+        let min = Infinity;
+        let max = -Infinity;
+        for (const d of data) {
+            const v = accessor(d);
+            min = Math.min(min, v);
+            max = Math.max(max, v);
+        }
+        return [min, max]    
+    }
+
+    function distance$2([ax, ay], [bx, by]) {
+        return Math.hypot(bx - ax, by - ay);//Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+    }
+
+    var utils = /*#__PURE__*/Object.freeze({
+        __proto__: null,
+        get_bounds: get_bounds,
+        remap: remap,
+        get_scales: get_scales,
+        extent: extent$1,
+        distance: distance$2
+    });
+
+    function rotate$1(size, px, py, rx, ry) {
         if (ry == 0) {
             if (rx == 1) {
                 px = size - 1 - px;
@@ -17,13 +102,18 @@
         return [px, py];
     }
 
+    /**
+     * 
+     * @param {*} param0 
+     * @param {*} size 
+     */
     function hilbert_encode([px, py], size) {
         let n = 0;
         for (let s = size / 2; s > 0; s /= 2) {
             const rx = (px & s) > 0;
             const ry = (py & s) > 0;
             n += (s ** 2) * ((3 * rx) ^ ry);
-            [px, py] = rotate(size, px, py, rx, ry);
+            [px, py] = rotate$1(size, px, py, rx, ry);
         }
         return n;
     }
@@ -34,7 +124,7 @@
         for (let s = 1; s < size; s *= 2) {
             const rx = 1 & (t / 2);
             const ry = 1 & (t ^ rx);
-            [px, py] = rotate(s, px, py, rx, ry);
+            [px, py] = rotate$1(s, px, py, rx, ry);
             px += (s * rx);
             py += (s * ry);
             t = t >> 2;
@@ -42,283 +132,225 @@
         return [px, py];
     }
 
-    function distance([ax, ay], [bx, by]) {
-        return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+    function hilbert_collision(P, p, d, i, size) {
+        const e = size ** 2;
+        const valid = (p) => p >= 0 && p <= e;
+        let pl = p;
+        let pr = p;
+        while (true) {
+            ++pl; --pr;
+            const el = !P.has(pl);
+            const er = !P.has(pr);
+            const vl = valid(pl);
+            const vr = valid(pr);
+            if (vl && el && !er) {
+                P.set(pl, i);
+                return;
+            } else if (!el && vr && er) {
+                P.set(pr, i);
+                return;
+            } else if (el && er) {
+                if (vl && vr) {
+                    let dl = distance$2(d, hilbert_decode(pl, size));
+                    let dr = distance$2(d, hilbert_decode(pr, size));
+                    P.set(dl < dr ? pl : pr, i);
+                    return;
+                } else if (vl) {
+                    P.set(pl, i);
+                    return;
+                } else if (vr) {
+                    P.set(pr, i);
+                    return;
+                }
+            }
+        } 
     }
 
-    function hilbert_collision_1(P, p, d, i, size) {
-        const distance_increment = distance(d, hilbert_decode(p + 1, size));
-        const distance_decrement = distance(d, hilbert_decode(p - 1, size));
-        const direction = distance_increment < distance_decrement ? 1 : -1; 
-        //const direction = 1
-        let flying = i;    
-        while (P.has(p)) {
-            // swap elements
-            const tmp = P.get(p);
-            //P.delete(p);
-            P.set(p, flying);
-            flying = tmp;
-            // hop to next place in direction
-            p += direction;
-        }
-        P.set(p, flying);
-    }
-
-    function hilbert_collision_2(P, p, i) {
-        while (P.has(p)) {
-            p += 1;
-        }
-        P.set(p, i);
-    }
-
-    async function gridify_hilbert(D, {level, collision}) {
+    function gridify_hilbert(D, {level, keep_aspect_ratio=false}) {
         const size = 2 ** level;
+        const curveLength = 4 ** level;
         const N = D.length;
         const P = new Map();
         const Y = new Array(N).fill(0);
-
+        const scales = get_scales(D, [[0, size - 1], [0, size - 1]], {keep_aspect_ratio: keep_aspect_ratio, round: true});
         D.forEach((d, i) => {
-            const [x, y] = [Math.round(d[0]), Math.round(d[1])];
+            const [x, y] = scales.map(s => s(d));
             let p = hilbert_encode([x, y], size);
             if (P.has(p)) { // collision detected
-                // distinguish direction
-                if (collision == "new") {
-                    hilbert_collision_1(P, p, d, i, size);
-                } else {
-                    hilbert_collision_2(P, p, i);
-                }
+                hilbert_collision(P, p, [x, y], i, curveLength);
             } else {
                 P.set(p, i);
             }
         });
 
-        for (const [p, i] of P) {
+        for (const [p, i] of P.entries()) {
             Y[i] = hilbert_decode(p, size);
         }
 
         return Y;
     }
 
-    /*
-    https://doi.org/10.3390/sym11060731
+    function create_gosper_fractal(level) {
+        const t1 = ["a", "b", "b", "a", "a", "a", "b"];
+        const d1 = [0, 5, 3, 4, 0, 0, 1];
 
-    Hierarchical Hexagonal Clustering and Indexing
-    by Vojtěch Uher 1,Petr Gajdoš 1,Václav Snášel 1, Yu-Chi Lai 2 and Michal Radecký 1
+        const t2 = ["a", "b", "b", "b", "a", "a", "b"];
+        const d2 = [1, 0, 0, 4, 3, 5, 0];
 
-    1 Department of Computer Science, VŠB-Technical University of Ostrava, Ostrava-Poruba 708 00, Czech Republic
-    2 Department of Computer Science and Information Engineering, National Taiwan University of Science and Technology, 43, Sec.4, Keelung Rd., Taipei 106, Taiwan
-    */
-    const REC_SQRT7 = 0.3779644730092272; // 1 / Math.sqrt(7)
-    const SQRT3_DIV_3 = 0.5773502691896257; // Math.sqrt(3) / 3
-    const ALPHA = 0.3334731722518321; // Math.asin(Math.sqrt(3) / (2 * Math.sqrt(7)))
+        const SQRT7 = Math.sqrt(7);
 
-    // Arry for mapping points onto the center pattern index
-    const pattern_index = [[5, 1, 3],[2, 4, 6]];
+        const result = [{
+            "s": SQRT7,
+            "t": ["a"],
+            "d": [0]
+        }];
 
-    // transform to node gosper pattern
-    const transform_index = [4, 0, 1, 2, 3, 6, 5];
+        for (let l = 1; l < level; ++l) {
+            const previous_result = result[l - 1];
+            result.push({
+                "s": previous_result.s * (1 / SQRT7),
+                "t": [],
+                "d": [],
+            });
 
-    // precomputed array of circles inscribed into Gosper islands of different levels
-    const inscribed_circles = [0.755928946000, 0.755928946000, 0.750121467308, 0.746782631146, 0.746782631146, 0.746577727521, 0.746348363909, 0.746348363909, 0.746344578768, 0.746327538283, 0.746327538283, 0.746327538283, 0.746326555879, 0.746326555879, 0.746326555879, 0.746326510616, 0.746326510616, 0.746326510616, 0.746326508597, 0.746326508597, 0.746326508597];
+            const t = previous_result.t;
+            const d = previous_result.d;
 
-    function xy2cube([x, y], size) {
-        const cx = (x * SQRT3_DIV_3 - y * 1/3) / size;
-        const cz = y * 2/3 / size;
-        const cy = -cx - cz;
-        return [cx, cy, cz];
-    }
-
-    function cube2xy([cx, cy, cz], size) {
-        const x = (3 / 2 * cx) * size;
-        const y = (Math.sqrt(3) * (cx / 2 + cz)) * size;
-        return [x, y];
-    }
-
-    function cube_abs_diff([ix, iy, iz], [dx, dy, dz]) {
-        let [cx, cy, cz] = [
-            ix - dx,
-            iy - dy,
-            iz - dz,
-        ].map(Math.abs);
-
-        if (cx > cy && cx > cz) {
-            ix = -iy - iz;
-        } else if (cy > cz) {
-            iy = -ix - iz;
-        } else {
-            iz = -ix - iy;
-        }
-
-        return [ix, iy, iz];
-    }
-
-    function transform([x, y, z]) {
-        const nx = (2 * x - z) / 7;
-        const nz = (x + 3 * z) / 7;
-        return [nx, -nx - nz, nz];
-    }
-
-    function inverse_transform([x, y, z]) {
-        const nx = (3 * x + z);
-        const nz = (-x + 2 * z);
-        return [nx, -nx - nz, nz];
-    }
-
-    function get_size(D, level) {
-        let min_x = Infinity;
-        let max_x = -Infinity;
-        let min_y = Infinity;
-        let max_y = -Infinity;
-        D.forEach(([x, y]) => {
-            min_x = x < min_x ? x : min_x;
-            max_x = x > max_x ? x : max_x;
-            min_y = y < min_y ? y : min_y;
-            max_y = y > max_y ? y : max_y;
-        });
-
-        const half_diagional = Math.sqrt(Math.pow(max_x - min_x, 2) + Math.pow(max_y - min_y, 2)) / 2;
-        const s = half_diagional / inscribed_circles[level];
-        return s * Math.pow(REC_SQRT7, level);
-    }
-    function f_y(i) {
-        //[-120, 0, 0, -120, 0, 120, 0].map(d => d / 180 * Math.PI)
-        return [-2.0943951023931953, 0, 0, -2.0943951023931953, 0, 2.0943951023931953, 0][i];
-    }
-
-    function gamma(i) {
-        //[0, 60, 120, 180, 0, -60, -120].map(d => -d / 180 * Math.PI)
-        return [0, -1.0471975511965976, -2.0943951023931953, -3.141592653589793, 0, 1.0471975511965976, 2.0943951023931953][i]
-    }
-
-    function rotate$1([x, y], alpha) {
-        const sin_alpha = Math.sin(alpha);
-        const cos_alpha = Math.cos(alpha);
-        return [cos_alpha * x - sin_alpha * y,
-                sin_alpha * x + cos_alpha * y]
-    }
-
-    function scale([x, y], s) {
-        return [x * s, y * s];
-    }
-
-    function gosper_encode([x, y], level, size) {
-        let b = new Array(level); // final position array
-        let sign; // sign of decimal residue;
-        let mini; // hexagon index according to the center pattern
-        
-        let [dx, dy, dz] = xy2cube([x, y], size);
-        let [ix, iy, iz] = [dx, dy, dz].map(Math.round);
-        [ix, iy, iz] = cube_abs_diff([ix, iy, iz], [dx, dy, dz]);
-
-        for (let l = 0; l < level; ++l) {
-            //hexcode *= 6;
-            [dx, dy, dz] = transform([ix, iy, iz]);
-            [ix, iy, iz] = [dx, dy, dz].map(Math.round);
-
-            dx -= ix;
-            dy -= iy;
-            dz -= iz;
-
-            let dominant = (Math.abs(dz) > Math.abs(dx)) ? 1 : 0 + (Math.abs(dz) > Math.abs(dy)) ? 1 : 0;
-            dominant = (dominant == 2 ? dominant : (Math.abs(dy) > Math.abs(dx) ? 1 : 0));
-            sign = [dx, dy, dz][dominant] < 0 ? 1 : 0;
-
-            if (Math.abs([dx, dy, dz][dominant]) < 0.00001) {
-                mini = 0;
-            } else {
-                mini = pattern_index[sign][dominant];
-            }
-
-            b[level - l - 1] = mini;
-        }
-
-        // next step
-        let rotDir = 0;
-        let order = true;
-        const k = new Array(level);
-        for (let i = 0; i < level; ++i) {
-            let bi = b[i];
-            if (bi != 0 && rotDir != 0) {
-                bi += 2 * rotDir;
-                if (bi < 1) {
-                    bi += 6;
-                } else if (bi > 6) {
-                    bi -= 6;
+            for (let i = 0; i < t.length; ++i) {
+                if (t[i] == "a") {
+                    result[l].t.push(...t1);
+                    result[l].d.push(...add_mod_6(d[i], d1));
+                } else {
+                    result[l].t.push(...t2);
+                    result[l].d.push(...add_mod_6(d[i], d2));
                 }
             }
-            let ki = transform_index[bi];
-            if (ki == 0 || ki == 3) {
-                --rotDir;
-            if (rotDir < -1) rotDir = 1;
-            } else if (ki == 5) {
-                ++rotDir;
-                if (rotDir > 1) rotDir = -1;
-            }
-            if (!order) {
-                k[i] = 6 - ki;
-            } else {
-                k[i] = ki;
-            }
-            if (ki == 0 || ki == 4 || ki == 5) {
-                order = !order;
-            }
         }
-        return k;
+
+        return result;
     }
 
-    function gosper_decode(k, level, size) {
-        let d = [-size, 0, 0];
-        for (let l = 0; l < level - 1; ++l) {
-            d = inverse_transform(d);
-        }
-        d = cube2xy(d, 1);
-        
-        //rotate([-size * Math.pow(Math.sqrt(7), level - 1), 0], (0) * ALPHA);
-        let c = [0, 0];
-        let ord = true;
-        for (let i = 0; i < level; ++i) {
-            let ki = (i > 0 && !ord) ? (6 - k[i]) : k[i];
-            const dk = rotate$1(d, gamma(ki));
-            if (ki != 4) {
-                c = [c[0] + dk[0], c[1] + dk[1]];
-            }
-            d = rotate$1(d, ALPHA + f_y(ki));
-            d = scale(d, REC_SQRT7);
-            if (ki == 0 || ki == 4 || ki == 5) {
-                ord = !ord;
-            }
-        }
-        return c;
+    function add_mod_6(m, d) {
+        return d.map(e => (m + e) % 6);
     }
 
-    function gridify_gosper(D, {level: level}) {
-        const size = get_size(D, level);
+    function generate_level(level) {
+        const k1 = .5;
+        const k2 = Math.sqrt(3) / 2;
+        const d_cos = [1, k1, -k1, -1, -k1, k1];
+        const d_sin = [0, k2, k2, 0, -k2, -k2];
+        const scale = level.s;
+        const n = level.d.length + 1;
+        const V = [[0, 0]];
+        for (let i = 1; i < n - 1; ++i) {
+            const d = level.d[i];
+            const [px, py] = V[i - 1];
+            V.push([
+                px + scale * d_cos[d],
+                py + scale * d_sin[d],
+            ]);
+        }
+        return V;
+    }
+
+    function gosper_encode$1(p, level) {
+        const gosper_fractal = create_gosper_fractal(level + 1);
+        const V = generate_level(gosper_fractal[level]);
+        return find_nearest(p, V)
+    }
+
+    function gosper_decode$1(i, level) {
+        const gosper_fractal = create_gosper_fractal(level + 1);
+        const V = generate_level(gosper_fractal[level]);
+        return V[i]
+    }
+
+    function gosper_curve(level) {
+        const gosper_fractal = create_gosper_fractal(level + 1);
+        return generate_level(gosper_fractal[level]);
+    }
+
+    function gosper_collision(P, p, d, i, V) {
+        const e = V.length - 1;
+        const valid = (p) => p >= 0 && p <= e;
+        let pl = p;
+        let pr = p;
+        while (true) {
+            ++pl; --pr;
+            const el = !P.has(pl);
+            const er = !P.has(pr);
+            const vl = valid(pl);
+            const vr = valid(pr);
+            if (vl && el && !er) {
+                P.set(pl, i);
+                return;
+            } else if (!el && vr && er) {
+                P.set(pr, i);
+                return;
+            } else if (el && er) {
+                if (vl && vr) {
+                    const dl = distance$2(d, V[pl]);
+                    const dr = distance$2(d, V[pr]);
+                    P.set(dl < dr ? pl : pr, i);
+                    return;
+                } else if (vl) {
+                    P.set(pl, i);
+                    return;
+                } else if (vr) {
+                    P.set(pr, i);
+                    return;
+                }
+            }
+        } 
+    }
+
+    function gridify_gosper$1(D, {level, scale_factor = 0.8}) {
         const N = D.length;
         const P = new Map();
         const Y = new Array(N).fill(0);
+        const V = gosper_curve(level);
+        // distance between grid cells (grid cell size)
+        distance$2(V[0], V[1]); // Math.sqrt(3);
+
+        const grid_extent = [extent$1(V, d => d[0] * scale_factor), extent$1(V, d => d[1]* scale_factor)]; 
+        const scales = get_scales(D, grid_extent, {round: false});
 
         D.forEach((d, i) => {
-            let p = gosper_encode(d, level, size);
+            let [x, y] = scales.map(s => s(d));
+            let p = find_nearest([x, y], V);
             if (P.has(p)) {
-                //let q = P.get(p);
-                while (P.has(p)) {
-                    p = p + 1;
-                }
+                gosper_collision(P, p, [x, y], i, V);
+            } else {
+                P.set(p, i);
             }
-            P.set(p, d);
-            Y[i] = gosper_decode(p, level, size);
         });
+
+        for (const [p, i] of P.entries()) {
+            Y[i] = V[p];
+        }
 
         return Y;
     }
 
-    let times = [];
+    function find_nearest(p, list) {
+        let nearest_index = -1;
+        let nearest_distance = Infinity;
+
+        list.forEach((q, i) => {
+            const dist = distance$2(p, q);
+            if (dist < nearest_distance) {
+                nearest_index = i;
+                nearest_distance = dist;
+            }
+        });
+
+        return nearest_index;
+    }
 
     function dgrid(G, P, r, s, i=0, j=0) {
         const N = P.length;
         if (N == 0) return
         else if (N == 1) {
-            times.push(performance.now());
             G.push({
                 d: P[0],
                 i: i,
@@ -327,36 +359,35 @@
         } else {
             if (r > s) {
                 const r_half = Math.ceil(r / 2);
-                const [P1, P2] = split(P, 1, r_half * s); // split by y
+                const [P1, P2] = split$1(P, 1, r_half * s); // split by y
                 dgrid(G, P1, (r_half), s, i, j);
                 dgrid(G, P2, (r - r_half), s, (i + r_half), j);
             } else {
                 const s_half = Math.ceil(s / 2);
-                const [P1, P2] = split(P, 0, s_half * r); // split by x
+                const [P1, P2] = split$1(P, 0, s_half * r); // split by x
                 dgrid(G, P1, r, s_half, i, j);
                 dgrid(G, P2, r, (s - s_half), i, (j + s_half));
             }
         }
     }
 
-    function split(P, dim, pos) {
+    function split$1(P, dim, pos) {
         const sorted = P.sort((a, b) => a[dim] - b[dim]);
         return [sorted.slice(0, pos), sorted.slice(pos)];
     }
 
-    async function gridify_dgrid(D, size) {
-        console.log(size);
+    function gridify_dgrid(D, parameters) {
         const N = D.length;
         let rows;
         let cols;
-        if ("rows" in size && "cols" in size) {
-            rows = size.rows;
-            cols = size.cols;
-        } else if (size == "square") {
+        if ("rows" in parameters && "cols" in parameters) {
+            rows = parameters.rows;
+            cols = parameters.cols;
+        } else if (parameters == "square") {
             rows = Math.ceil(Math.sqrt(N));
             cols = Math.ceil(Math.sqrt(N));
-        } else if ("aspect_ratio" in size) {
-            rows = Math.floor(Math.sqrt(N * size.aspect_ratio));
+        } else if ("aspect_ratio" in parameters) {
+            rows = Math.floor(Math.sqrt(N * parameters.aspect_ratio));
             cols = Math.ceil(N / rows);
         } else {
             throw "wrong parameters!"
@@ -376,7 +407,7 @@
         } else {
             const dim = direction ? 0 : 1;
             P = P.sort((a, b) => b[dim] - a[dim]);
-            let [Da, Db] = split$1(P, N_half);
+            let [Da, Db] = split(P, N_half);
             let Ra = Object.assign({}, R);
             let Rb = Object.assign({}, R);
             if (direction) {
@@ -415,27 +446,6 @@
         }
     }
 
-    function getBounds(D) {
-        let min_x = Infinity;
-        let max_x = -Infinity;
-        let min_y = Infinity;
-        let max_y = -Infinity;
-
-        D.forEach(([x, y, i]) => {
-            min_x = Math.min(min_x, x);
-            max_x = Math.max(max_x, x);
-            min_y = Math.min(min_y, y);
-            max_y = Math.max(max_y, y);
-        });
-
-        return {
-            "x": min_x,
-            "y": min_y,
-            "width": max_x - min_x,
-            "height": max_y - min_y,
-        }
-    }
-
     function affine_transform_points(D, [[scale_x, shear_x, translate_x], [scale_y, shear_y, translate_y]]) {
         return D.map(([x, y, i]) => [
             x * scale_x + y * shear_x + translate_x,
@@ -457,7 +467,7 @@
         }
     }
 
-    function split$1(P, pos) {
+    function split(P, pos) {
         const N = P.length;
         return [P.slice(0, pos), P.slice(pos, N)];
     }
@@ -470,7 +480,7 @@
 
     // https://github.com/sebastian-meier/nmap-squared.js/blob/master/nmap-squared.js
     function squared(D, {x: x0, y: y0, width, height}) {
-        const BB2 = getBounds(D);
+        const BB2 = get_bounds(D);
         let sx = width / BB2.width;
         let sy = height / BB2.height;
         if (sx < sy) {
@@ -524,19 +534,290 @@
         return A.sort((a, b) => a.dist - b.dist);
     }
 
-    async function gridify_nmap(D, parameters) {
+    function gridify_nmap(D, parameters) {
         let G = [];
         console.log(parameters);
         if (!"BB" in parameters || parameters.BB == null) {
             console.log("no BB");
-            parameters.BB = getBounds(D);
+            parameters.BB = get_bounds(D);
         }
         let added_index = D.map(([x, y], i) => [x, y, i]);
         if ("squared" in parameters && parameters.squared == true) {
             added_index = squared(added_index, parameters.BB);
         }
         nmap(G, added_index, parameters.BB, false);
-        return G.sort((a, b) => a.d[2] - b.d[2]).filter(d => d.d[2] != undefined)//.map(g => [g.j, g.i])
+        return G
+            .filter(d => d.d[2] != undefined)
+            .sort((a, b) => a.d[2] - b.d[2])
+            .map(({x, y, width, height}) => [x + width / 2, y + height / 2])
+    }
+
+    const epsilon$1 = 1.1102230246251565e-16;
+    const splitter = 134217729;
+    const resulterrbound = (3 + 8 * epsilon$1) * epsilon$1;
+
+    // fast_expansion_sum_zeroelim routine from oritinal code
+    function sum(elen, e, flen, f, h) {
+        let Q, Qnew, hh, bvirt;
+        let enow = e[0];
+        let fnow = f[0];
+        let eindex = 0;
+        let findex = 0;
+        if ((fnow > enow) === (fnow > -enow)) {
+            Q = enow;
+            enow = e[++eindex];
+        } else {
+            Q = fnow;
+            fnow = f[++findex];
+        }
+        let hindex = 0;
+        if (eindex < elen && findex < flen) {
+            if ((fnow > enow) === (fnow > -enow)) {
+                Qnew = enow + Q;
+                hh = Q - (Qnew - enow);
+                enow = e[++eindex];
+            } else {
+                Qnew = fnow + Q;
+                hh = Q - (Qnew - fnow);
+                fnow = f[++findex];
+            }
+            Q = Qnew;
+            if (hh !== 0) {
+                h[hindex++] = hh;
+            }
+            while (eindex < elen && findex < flen) {
+                if ((fnow > enow) === (fnow > -enow)) {
+                    Qnew = Q + enow;
+                    bvirt = Qnew - Q;
+                    hh = Q - (Qnew - bvirt) + (enow - bvirt);
+                    enow = e[++eindex];
+                } else {
+                    Qnew = Q + fnow;
+                    bvirt = Qnew - Q;
+                    hh = Q - (Qnew - bvirt) + (fnow - bvirt);
+                    fnow = f[++findex];
+                }
+                Q = Qnew;
+                if (hh !== 0) {
+                    h[hindex++] = hh;
+                }
+            }
+        }
+        while (eindex < elen) {
+            Qnew = Q + enow;
+            bvirt = Qnew - Q;
+            hh = Q - (Qnew - bvirt) + (enow - bvirt);
+            enow = e[++eindex];
+            Q = Qnew;
+            if (hh !== 0) {
+                h[hindex++] = hh;
+            }
+        }
+        while (findex < flen) {
+            Qnew = Q + fnow;
+            bvirt = Qnew - Q;
+            hh = Q - (Qnew - bvirt) + (fnow - bvirt);
+            fnow = f[++findex];
+            Q = Qnew;
+            if (hh !== 0) {
+                h[hindex++] = hh;
+            }
+        }
+        if (Q !== 0 || hindex === 0) {
+            h[hindex++] = Q;
+        }
+        return hindex;
+    }
+
+    function estimate(elen, e) {
+        let Q = e[0];
+        for (let i = 1; i < elen; i++) Q += e[i];
+        return Q;
+    }
+
+    function vec(n) {
+        return new Float64Array(n);
+    }
+
+    const ccwerrboundA = (3 + 16 * epsilon$1) * epsilon$1;
+    const ccwerrboundB = (2 + 12 * epsilon$1) * epsilon$1;
+    const ccwerrboundC = (9 + 64 * epsilon$1) * epsilon$1 * epsilon$1;
+
+    const B$1 = vec(4);
+    const C1 = vec(8);
+    const C2 = vec(12);
+    const D = vec(16);
+    const u = vec(4);
+
+    function orient2dadapt(ax, ay, bx, by, cx, cy, detsum) {
+        let acxtail, acytail, bcxtail, bcytail;
+        let bvirt, c, ahi, alo, bhi, blo, _i, _j, _0, s1, s0, t1, t0, u3;
+
+        const acx = ax - cx;
+        const bcx = bx - cx;
+        const acy = ay - cy;
+        const bcy = by - cy;
+
+        s1 = acx * bcy;
+        c = splitter * acx;
+        ahi = c - (c - acx);
+        alo = acx - ahi;
+        c = splitter * bcy;
+        bhi = c - (c - bcy);
+        blo = bcy - bhi;
+        s0 = alo * blo - (s1 - ahi * bhi - alo * bhi - ahi * blo);
+        t1 = acy * bcx;
+        c = splitter * acy;
+        ahi = c - (c - acy);
+        alo = acy - ahi;
+        c = splitter * bcx;
+        bhi = c - (c - bcx);
+        blo = bcx - bhi;
+        t0 = alo * blo - (t1 - ahi * bhi - alo * bhi - ahi * blo);
+        _i = s0 - t0;
+        bvirt = s0 - _i;
+        B$1[0] = s0 - (_i + bvirt) + (bvirt - t0);
+        _j = s1 + _i;
+        bvirt = _j - s1;
+        _0 = s1 - (_j - bvirt) + (_i - bvirt);
+        _i = _0 - t1;
+        bvirt = _0 - _i;
+        B$1[1] = _0 - (_i + bvirt) + (bvirt - t1);
+        u3 = _j + _i;
+        bvirt = u3 - _j;
+        B$1[2] = _j - (u3 - bvirt) + (_i - bvirt);
+        B$1[3] = u3;
+
+        let det = estimate(4, B$1);
+        let errbound = ccwerrboundB * detsum;
+        if (det >= errbound || -det >= errbound) {
+            return det;
+        }
+
+        bvirt = ax - acx;
+        acxtail = ax - (acx + bvirt) + (bvirt - cx);
+        bvirt = bx - bcx;
+        bcxtail = bx - (bcx + bvirt) + (bvirt - cx);
+        bvirt = ay - acy;
+        acytail = ay - (acy + bvirt) + (bvirt - cy);
+        bvirt = by - bcy;
+        bcytail = by - (bcy + bvirt) + (bvirt - cy);
+
+        if (acxtail === 0 && acytail === 0 && bcxtail === 0 && bcytail === 0) {
+            return det;
+        }
+
+        errbound = ccwerrboundC * detsum + resulterrbound * Math.abs(det);
+        det += (acx * bcytail + bcy * acxtail) - (acy * bcxtail + bcx * acytail);
+        if (det >= errbound || -det >= errbound) return det;
+
+        s1 = acxtail * bcy;
+        c = splitter * acxtail;
+        ahi = c - (c - acxtail);
+        alo = acxtail - ahi;
+        c = splitter * bcy;
+        bhi = c - (c - bcy);
+        blo = bcy - bhi;
+        s0 = alo * blo - (s1 - ahi * bhi - alo * bhi - ahi * blo);
+        t1 = acytail * bcx;
+        c = splitter * acytail;
+        ahi = c - (c - acytail);
+        alo = acytail - ahi;
+        c = splitter * bcx;
+        bhi = c - (c - bcx);
+        blo = bcx - bhi;
+        t0 = alo * blo - (t1 - ahi * bhi - alo * bhi - ahi * blo);
+        _i = s0 - t0;
+        bvirt = s0 - _i;
+        u[0] = s0 - (_i + bvirt) + (bvirt - t0);
+        _j = s1 + _i;
+        bvirt = _j - s1;
+        _0 = s1 - (_j - bvirt) + (_i - bvirt);
+        _i = _0 - t1;
+        bvirt = _0 - _i;
+        u[1] = _0 - (_i + bvirt) + (bvirt - t1);
+        u3 = _j + _i;
+        bvirt = u3 - _j;
+        u[2] = _j - (u3 - bvirt) + (_i - bvirt);
+        u[3] = u3;
+        const C1len = sum(4, B$1, 4, u, C1);
+
+        s1 = acx * bcytail;
+        c = splitter * acx;
+        ahi = c - (c - acx);
+        alo = acx - ahi;
+        c = splitter * bcytail;
+        bhi = c - (c - bcytail);
+        blo = bcytail - bhi;
+        s0 = alo * blo - (s1 - ahi * bhi - alo * bhi - ahi * blo);
+        t1 = acy * bcxtail;
+        c = splitter * acy;
+        ahi = c - (c - acy);
+        alo = acy - ahi;
+        c = splitter * bcxtail;
+        bhi = c - (c - bcxtail);
+        blo = bcxtail - bhi;
+        t0 = alo * blo - (t1 - ahi * bhi - alo * bhi - ahi * blo);
+        _i = s0 - t0;
+        bvirt = s0 - _i;
+        u[0] = s0 - (_i + bvirt) + (bvirt - t0);
+        _j = s1 + _i;
+        bvirt = _j - s1;
+        _0 = s1 - (_j - bvirt) + (_i - bvirt);
+        _i = _0 - t1;
+        bvirt = _0 - _i;
+        u[1] = _0 - (_i + bvirt) + (bvirt - t1);
+        u3 = _j + _i;
+        bvirt = u3 - _j;
+        u[2] = _j - (u3 - bvirt) + (_i - bvirt);
+        u[3] = u3;
+        const C2len = sum(C1len, C1, 4, u, C2);
+
+        s1 = acxtail * bcytail;
+        c = splitter * acxtail;
+        ahi = c - (c - acxtail);
+        alo = acxtail - ahi;
+        c = splitter * bcytail;
+        bhi = c - (c - bcytail);
+        blo = bcytail - bhi;
+        s0 = alo * blo - (s1 - ahi * bhi - alo * bhi - ahi * blo);
+        t1 = acytail * bcxtail;
+        c = splitter * acytail;
+        ahi = c - (c - acytail);
+        alo = acytail - ahi;
+        c = splitter * bcxtail;
+        bhi = c - (c - bcxtail);
+        blo = bcxtail - bhi;
+        t0 = alo * blo - (t1 - ahi * bhi - alo * bhi - ahi * blo);
+        _i = s0 - t0;
+        bvirt = s0 - _i;
+        u[0] = s0 - (_i + bvirt) + (bvirt - t0);
+        _j = s1 + _i;
+        bvirt = _j - s1;
+        _0 = s1 - (_j - bvirt) + (_i - bvirt);
+        _i = _0 - t1;
+        bvirt = _0 - _i;
+        u[1] = _0 - (_i + bvirt) + (bvirt - t1);
+        u3 = _j + _i;
+        bvirt = u3 - _j;
+        u[2] = _j - (u3 - bvirt) + (_i - bvirt);
+        u[3] = u3;
+        const Dlen = sum(C2len, C2, 4, u, D);
+
+        return D[Dlen - 1];
+    }
+
+    function orient2d(ax, ay, bx, by, cx, cy) {
+        const detleft = (ay - cy) * (bx - cx);
+        const detright = (ax - cx) * (by - cy);
+        const det = detleft - detright;
+
+        if (detleft === 0 || detright === 0 || (detleft > 0) !== (detright > 0)) return det;
+
+        const detsum = Math.abs(detleft + detright);
+        if (Math.abs(det) >= ccwerrboundA * detsum) return det;
+
+        return -orient2dadapt(ax, ay, bx, by, cx, cy, detsum);
     }
 
     const EPSILON = Math.pow(2, -52);
@@ -669,7 +950,7 @@
             }
 
             // swap the order of the seed points for counter-clockwise orientation
-            if (orient(i0x, i0y, i1x, i1y, i2x, i2y)) {
+            if (orient2d(i0x, i0y, i1x, i1y, i2x, i2y) < 0) {
                 const i = i1;
                 const x = i1x;
                 const y = i1y;
@@ -734,7 +1015,7 @@
 
                 start = hullPrev[start];
                 let e = start, q;
-                while (q = hullNext[e], !orient(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q], coords[2 * q + 1])) {
+                while (q = hullNext[e], orient2d(x, y, coords[2 * e], coords[2 * e + 1], coords[2 * q], coords[2 * q + 1]) >= 0) {
                     e = q;
                     if (e === start) {
                         e = -1;
@@ -753,7 +1034,7 @@
 
                 // walk forward through the hull, adding more triangles and flipping recursively
                 let n = hullNext[e];
-                while (q = hullNext[n], orient(x, y, coords[2 * n], coords[2 * n + 1], coords[2 * q], coords[2 * q + 1])) {
+                while (q = hullNext[n], orient2d(x, y, coords[2 * n], coords[2 * n + 1], coords[2 * q], coords[2 * q + 1]) < 0) {
                     t = this._addTriangle(n, i, q, hullTri[i], -1, hullTri[n]);
                     hullTri[i] = this._legalize(t + 2);
                     hullNext[n] = n; // mark as removed
@@ -763,7 +1044,7 @@
 
                 // walk backward from the other side, adding more triangles and flipping
                 if (e === start) {
-                    while (q = hullPrev[e], orient(x, y, coords[2 * q], coords[2 * q + 1], coords[2 * e], coords[2 * e + 1])) {
+                    while (q = hullPrev[e], orient2d(x, y, coords[2 * q], coords[2 * q + 1], coords[2 * e], coords[2 * e + 1]) < 0) {
                         t = this._addTriangle(q, i, e, -1, hullTri[e], hullTri[q]);
                         this._legalize(t + 2);
                         hullTri[q] = t;
@@ -916,21 +1197,6 @@
         const dx = ax - bx;
         const dy = ay - by;
         return dx * dx + dy * dy;
-    }
-
-    // return 2d orientation sign if we're confident in it through J. Shewchuk's error bound check
-    function orientIfSure(px, py, rx, ry, qx, qy) {
-        const l = (ry - py) * (qx - px);
-        const r = (rx - px) * (qy - py);
-        return Math.abs(l - r) >= 3.3306690738754716e-16 * Math.abs(l + r) ? l - r : 0;
-    }
-
-    // a more robust orientation test that's stable in a given triangle (to fix robustness issues)
-    function orient(rx, ry, qx, qy, px, py) {
-        const sign = orientIfSure(px, py, rx, ry, qx, qy) ||
-        orientIfSure(rx, ry, qx, qy, px, py) ||
-        orientIfSure(qx, qy, px, py, rx, ry);
-        return sign < 0;
     }
 
     function inCircle(ax, ay, bx, by, cx, cy, px, py) {
@@ -1125,21 +1391,26 @@
           const dy = y2 - y1;
           const ex = x3 - x1;
           const ey = y3 - y1;
-          const bl = dx * dx + dy * dy;
-          const cl = ex * ex + ey * ey;
           const ab = (dx * ey - dy * ex) * 2;
 
-          if (!ab) {
+          if (Math.abs(ab) < 1e-9) {
             // degenerate case (collinear diagram)
-            x = (x1 + x3) / 2 - 1e8 * ey;
-            y = (y1 + y3) / 2 + 1e8 * ex;
-          }
-          else if (Math.abs(ab) < 1e-8) {
             // almost equal points (degenerate triangle)
-            x = (x1 + x3) / 2;
-            y = (y1 + y3) / 2;
+            // the circumcenter is at the infinity, in a
+            // direction that is:
+            // 1. orthogonal to the halfedge.
+            let a = 1e9;
+            // 2. points away from the center; since the list of triangles starts
+            // in the center, the first point of the first triangle
+            // will be our reference
+            const r = triangles[0] * 2;
+            a *= Math.sign((points[r] - x1) * ey - (points[r + 1] - y1) * ex);
+            x = (x1 + x3) / 2 - a * ey;
+            y = (y1 + y3) / 2 + a * ex;
           } else {
             const d = 1 / ab;
+            const bl = dx * dx + dy * dy;
+            const cl = ex * ex + ey * ey;
             x = x1 + (ey * bl - dy * cl) * d;
             y = y1 + (dx * cl - ex * bl) * d;
           }
@@ -1196,7 +1467,7 @@
       renderCell(i, context) {
         const buffer = context == null ? context = new Path : undefined;
         const points = this._clip(i);
-        if (points === null) return;
+        if (points === null || !points.length) return;
         context.moveTo(points[0], points[1]);
         let n = points.length;
         while (points[0] === points[n-2] && points[1] === points[n-1] && n > 1) n -= 2;
@@ -1211,7 +1482,7 @@
         const {delaunay: {points}} = this;
         for (let i = 0, n = points.length / 2; i < n; ++i) {
           const cell = this.cellPolygon(i);
-          if (cell) yield cell;
+          if (cell) cell.index = i, yield cell;
         }
       }
       cellPolygon(i) {
@@ -1287,7 +1558,7 @@
         let P = null;
         let x0, y0, x1 = points[n - 2], y1 = points[n - 1];
         let c0, c1 = this._regioncode(x1, y1);
-        let e0, e1;
+        let e0, e1 = 0;
         for (let j = 0; j < n; j += 2) {
           x0 = x1, y0 = y1, x1 = points[j], y1 = points[j + 1];
           c0 = c1, c1 = this._regioncode(x1, y1);
@@ -1362,6 +1633,8 @@
             case 0b1001: e0 = 0b0001; continue; // bottom-left
             case 0b0001: e0 = 0b0101, x = this.xmin, y = this.ymin; break; // left
           }
+          // Note: this implicitly checks for out of bounds: if P[j] or P[j+1] are
+          // undefined, the conditional statement will be executed.
           if ((P[j] !== x || P[j + 1] !== y) && this.contains(i, x, y)) {
             P.splice(j, 0, x, y), j += 2;
           }
@@ -1408,7 +1681,7 @@
       }
     }
 
-    const tau = 2 * Math.PI;
+    const tau = 2 * Math.PI, pow = Math.pow;
 
     function pointX(p) {
       return p[0];
@@ -1463,7 +1736,7 @@
             .sort((i, j) => points[2 * i] - points[2 * j] || points[2 * i + 1] - points[2 * j + 1]); // for exact neighbors
           const e = this.collinear[0], f = this.collinear[this.collinear.length - 1],
             bounds = [ points[2 * e], points[2 * e + 1], points[2 * f], points[2 * f + 1] ],
-            r = 1e-8 * Math.sqrt((bounds[3] - bounds[1])**2 + (bounds[2] - bounds[0])**2);
+            r = 1e-8 * Math.hypot(bounds[3] - bounds[1], bounds[2] - bounds[0]);
           for (let i = 0, n = points.length / 2; i < n; ++i) {
             const p = jitter(points[2 * i], points[2 * i + 1], r);
             points[2 * i] = p[0];
@@ -1496,10 +1769,12 @@
           this.triangles = new Int32Array(3).fill(-1);
           this.halfedges = new Int32Array(3).fill(-1);
           this.triangles[0] = hull[0];
-          this.triangles[1] = hull[1];
-          this.triangles[2] = hull[1];
           inedges[hull[0]] = 1;
-          if (hull.length === 2) inedges[hull[1]] = 0;
+          if (hull.length === 2) {
+            inedges[hull[1]] = 0;
+            this.triangles[1] = hull[1];
+            this.triangles[2] = hull[1];
+          }
         }
       }
       voronoi(bounds) {
@@ -1542,12 +1817,12 @@
         const {inedges, hull, _hullIndex, halfedges, triangles, points} = this;
         if (inedges[i] === -1 || !points.length) return (i + 1) % (points.length >> 1);
         let c = i;
-        let dc = (x - points[i * 2]) ** 2 + (y - points[i * 2 + 1]) ** 2;
+        let dc = pow(x - points[i * 2], 2) + pow(y - points[i * 2 + 1], 2);
         const e0 = inedges[i];
         let e = e0;
         do {
           let t = triangles[e];
-          const dt = (x - points[t * 2]) ** 2 + (y - points[t * 2 + 1]) ** 2;
+          const dt = pow(x - points[t * 2], 2) + pow(y - points[t * 2 + 1], 2);
           if (dt < dc) dc = dt, c = t;
           e = e % 3 === 2 ? e - 2 : e + 1;
           if (triangles[e] !== i) break; // bad triangulation
@@ -1555,7 +1830,7 @@
           if (e === -1) {
             e = hull[(_hullIndex[i] + 1) % hull.length];
             if (e !== t) {
-              if ((x - points[e * 2]) ** 2 + (y - points[e * 2 + 1]) ** 2 < dc) return e;
+              if (pow(x - points[e * 2], 2) + pow(y - points[e * 2 + 1], 2) < dc) return e;
             }
             break;
           }
@@ -1576,7 +1851,9 @@
         this.renderHull(context);
         return buffer && buffer.value();
       }
-      renderPoints(context, r = 2) {
+      renderPoints(context, r) {
+        if (r === undefined && (!context || typeof context.moveTo !== "function")) r = context, context = null;
+        r = r == undefined ? 2 : +r;
         const buffer = context == null ? context = new Path : undefined;
         const {points} = this;
         for (let i = 0, n = points.length; i < n; i += 2) {
@@ -1653,14 +1930,14 @@
     function gamma$1([px, py], {x1, x2, y1, y2}) {
         let [nx, ny] = [px, py];
         if (px < x1) nx = x1;
-        if (px > x2) nx = x2;
+        else if (px > x2) nx = x2;
         if (py < y1) ny = y1;
-        if (py > y2) ny = y2;
+        else if (py > y2) ny = y2;
         return [nx, ny]
     }
 
     function distance$1([ax, ay], [bx, by]) {
-        return Math.sqrt(Math.pow(ax - bx, 2) + Math.pow(ay - by, 2));
+        return Math.hypot(bx - ax, by - ay);//Math.sqrt(((ax - bx) ** 2) + ((ay - by) ** 2));
     }
 
     function compute_overlap([px, py], [qx, qy], s) {
@@ -1671,9 +1948,9 @@
             const oy = Math.abs(Math.min(dy - s, 0));
             const dd = distance$1([px, py], [qx, qy]);
             if (ox < oy) {
-                return (dd * ox) / dx;
+                return dx == 0 ? (dd * oy) / dy : (dd * ox) / dx;
             } else if (oy <= ox) {
-                return (dd * oy) / dy;
+                return dy == 0 ? (dd * ox) / dx : (dd * oy) / dy;
             }
         } else {
             return 0
@@ -1681,105 +1958,721 @@
     }
 
     // computes all the stuff needed for cmds
-    function create_proximity_graph(A, D, s) {
+    function create_proximity_graph(A, B, s, augment=false) {
         const delaunay = Delaunay.from(A);
-        return A.map((d, i) => {
-            return [...delaunay.neighbors(i)].map((j) => {
-                const pd = D[i];
-                const qd = D[j];
+        return A.map((_, i) => {
+            //return [...delaunay.neighbors(i)].map((j) => {
+            const neighbors = [...delaunay.neighbors(i)];
+            return A.map((_, j) => {
+                /* const pd = D[i];
+                const qd = D[j]; */
                 const pa = A[i];
                 const qa = A[j];
+                const po = B[i];
+                const qo = B[j];
                 // maybe better to save
-                const odistance = distance$1(pd, qd);
+                const odistance = distance$1(po, qo);
                 const overlap = compute_overlap(pa, qa, s);
                 return {
                     "source": i,
                     "target": j,
-                    "distance": odistance,
-                    "overlap": overlap,
-                    "delta": odistance + overlap
+                    "distance": odistance, //l_ij
+                    "overlap": overlap, // delta_ij
+                    "delta": odistance + overlap // d_ij
                 }
+            }).filter(({target, overlap}) => {
+                const keep_overlap = overlap > 1e-2;
+                const keep_neighbor = neighbors.findIndex(j => target == j) >= 0;
+                return augment ? keep_overlap || keep_neighbor : keep_neighbor;
             })
-        })
-        .flat()
+        }).flat()
     }
 
     // end condition is
     // no overlaps anymore and all points are inside the boundaries
     function end_condition(proximity_graph, G, {x1, x2, y1, y2}) {
+        const tol = 1;
         const sum_overlaps = proximity_graph
-            .map(d => d.overlap)
-            .reduce((a, b) => a + b);
+            .reduce((a, b) => a + b.overlap, 0);
 
+        //console.log("sum overlaps", sum_overlaps, proximity_graph.filter(d => d.overlap > tol).length)
         const inside_Gamma = G
             .map(([px, py]) => px >= x1 && px <= x2 && py >= y1 && py <= y2)
+            //.map(([px, py]) => (px - x1 < tol) && (px - x2 < tol) && (py - y1 < tol) && (py - y2 < tol))
             .reduce((a, b) => a && b);
 
-        return sum_overlaps == 0 && inside_Gamma
+        /* console.log("inside Gamma", G
+        .map(([px, py]) => px >= x1 - s/2 && px <= x2 + s/2 && py >= y1 - s/2 && py <= y2 + s/2)
+            .filter(d => !d).length, 
+            inside_Gamma) */
+        //console.log(inside_Gamma, sum_overlaps)
+        return sum_overlaps < tol && inside_Gamma
     }
 
-    async function gridify_cmds(D, parameters) {
+    async function* gridify_cmds(D, parameters) {
         const N = D.length;
         const Gamma = parameters.Gamma;
-        const [kw, kh] = parameters.size;
-        const alpha = parameters.alpha ? parameters.alpha : .1;
-        let max_iter = parameters.max_iter ? parameters.max_iter : 5000;
+        const s = parameters.size;
+        let alpha = parameters.alpha ? parameters.alpha : .1;
+        let max_iter = parameters.max_iter ? parameters.max_iter : 50;
         
-        // construct proximity graph and 
-        // calculate the ideal distances according to (3)
-        let proximity_graph = create_proximity_graph(D, D, kw);
         // copy D
         let G = D.map(([x, y]) => [x, y]);
+        // construct proximity graph and 
+        // calculate the ideal distances according to (3)
+        let proximity_graph = create_proximity_graph(G, D, s, false);
         
         do {
-            // update step according to (6)
-            let nominator = new Array(N).fill(0);
-            nominator = nominator.map(() => [0, 0]);
-            let denominator = new Array(N).fill(0);
+            for (let i = 0; i < 20; ++i) {
+                // update step according to (4)
+                const nominator = Array.from({length: N}, () => [0, 0]);
+                const denominator = Array.from({length: N}, () => 0);
 
-            proximity_graph.forEach(({source: i, target: j, distance, delta}) => {
-                let pi = G[i];
-                let pj = G[j];
-                const wij = (1/Math.pow(delta, 2));
-                nominator[i][0] += (wij * (pj[0] + delta * ((pi[0] - pj[0]) / distance)));
-                nominator[i][1] += (wij * (pj[1] + delta * ((pi[1] - pj[1]) / distance)));
-                denominator[i] += wij;
-            });
+                proximity_graph.forEach(({source: i, target: j, delta}) => {
+                    let pi = G[i];
+                    let pj = G[j];
+                    //if (proximity_graph.findIndex(({source, target}) => source == j && target == i) < k) return;
+                    const wij = 1 / Math.pow(delta, 2);
+                    const dist = distance$1(pi, pj);
+                    nominator[i][0] += (wij * (pj[0] + delta * ((pi[0] - pj[0]) / dist)));
+                    nominator[i][1] += (wij * (pj[1] + delta * ((pi[1] - pj[1]) / dist)));
+                    denominator[i] += wij;
+                });
 
-            G = G.map(([px, py], i) => {
-                const gamma_i = gamma$1([px, py], Gamma);
-                return [
-                    (nominator[i][0] + alpha * gamma_i[0]) / (denominator[i] + alpha),
-                    (nominator[i][1] + alpha * gamma_i[1]) / (denominator[i] + alpha),
-                ]
-            });
+                G = G.map((p, i) => {
+                    const [gamma_px, gamma_py] = gamma$1(p, Gamma);
+                    return [
+                        (nominator[i][0] + alpha * gamma_px) / (denominator[i] + alpha),
+                        (nominator[i][1] + alpha * gamma_py) / (denominator[i] + alpha),
+                    ]
+                });
+
+            }
             // reconstruct the proximity graph
             // with the new layout
+            proximity_graph = create_proximity_graph(G, D, s, true);
 
-            // should augment G with edges from pairs of nodes that overlap? not done
-            proximity_graph = create_proximity_graph(G, D, kw);
-        } while (--max_iter >= 0 && !end_condition(proximity_graph, G, Gamma))
-        
+            yield [G, proximity_graph];
+
+        } while (--max_iter > 0 && !end_condition(proximity_graph, G, Gamma))
         // round to grid
-        G = G.map(([px, py]) => {
-            return [
-                Math.floor((px - kw / 2) / kw) * kw + (kw / 2),
-                Math.floor((py - kh / 2) / kh) * kh + (kh / 2),
-            ];
+        G = G.map(d => {
+            return d.map(v => {
+                return Math.round((v - s / 2) / s) * s + (s / 2)
+            })
         });
-        return G
+
+        proximity_graph = create_proximity_graph(G, s);
+        //console.log("fin")
+        yield [G, proximity_graph];
+        //return G
     }
 
-    exports.get_size = get_size;
-    exports.gosper_decode = gosper_decode;
-    exports.gosper_encode = gosper_encode;
+    function area([x_min, x_max, y_min, y_max]) {
+        return (x_max - x_min) * (y_max - y_min);
+    }
+
+    function extent(indices, data) {
+        return [
+            ...d3.extent(indices, (i) => data[i][0]),
+            ...d3.extent(indices, (i) => data[i][1]),
+        ];
+    }
+
+    function quadtree(data, node, [x_min, x_max, y_min, y_max], nodes) {
+        if (Math.abs(x_max - x_min) <= 1 || Math.abs(y_max - y_min) <= 1) {
+            return;
+        }
+
+        let x_mid = Math.min(
+            Math.max(x_min, Math.floor((x_max + x_min) / 2)),
+            x_max - 1
+        );
+        let y_mid = Math.min(
+            Math.max(y_min, Math.floor((y_max + y_min) / 2)),
+            y_max - 1
+        );
+
+        node.children = [];
+        //B1
+        let child;
+        child = node.filter(
+            i =>
+                data[i][0] >= x_min &&
+                data[i][0] <= x_mid &&
+                data[i][1] >= y_min &&
+                data[i][1] <= y_mid
+        );
+        child.E = [x_min, x_mid, y_min, y_mid];
+        node.children.push(child);
+
+        // B2
+        child = node.filter(
+            i =>
+                data[i][0] > x_mid &&
+                data[i][0] <= x_max &&
+                data[i][1] >= y_min &&
+                data[i][1] <= y_mid
+        );
+        child.E = [x_mid, x_max, y_min, y_mid];
+        node.children.push(child);
+
+        //B3
+        child = node.filter(
+            i =>
+                data[i][0] >= x_min &&
+                data[i][0] <= x_mid &&
+                data[i][1] > y_mid &&
+                data[i][1] <= y_max
+        );
+        child.E = [x_min, x_mid, y_mid, y_max];
+        node.children.push(child);
+
+        //B4
+        child = node.filter(
+            i =>
+                data[i][0] > x_mid &&
+                data[i][0] <= x_max &&
+                data[i][1] > y_mid &&
+                data[i][1] <= y_max
+        );
+        child.E = [x_mid, x_max, y_mid, y_max];
+        node.children.push(child);
+
+        nodes.push(...node.children.filter(child => child.length > 0));
+
+        node.children.forEach((child, i) => {
+            child.parent = node;
+            //console.log("quad", node.E, i, child.E)
+            if (child.length > 0) quadtree(data, child, child.E, nodes);
+        });
+    }
+
+    function fit(node, count, data) {
+        const [x_min, x_max, y_min, y_max] = node.E;
+        // if node is leaf, then place the points on the grid
+        if (!node.children) {
+            if (node.length == 0) return;
+            const x_span = x_max - x_min;
+            const y_span = y_max - y_min;
+
+            for (let dx = 0; dx < x_span; ++dx) {
+                for (let dy = 0; dy < y_span; ++dy) {
+                    if (node.length > 0) {
+                        const i = node.pop();
+                        const el = [x_min + dx, y_min + dy];
+                        el.i = i;
+                        nodes.final.push(el);
+                    }
+                }
+            }
+            if (node.length > 0) {
+                nodes.leftovers.push(...node);
+            }
+            return;
+        }
+        let x_mid = Math.floor((x_max + x_min) / 2);
+        let y_mid = Math.floor((y_max + y_min) / 2);
+
+        const [B1, B2, B3, B4] = node.children;
+        const [P1, P2, P3, P4] = node.children.map((child) => child.length);
+
+        // Search for x
+        const P13 = P1 + P3;
+        const P24 = P2 + P4;
+        let A13 = area([x_min, x_mid, y_min, y_max]);
+        let A24 = area([x_mid, x_max, y_min, y_max]);
+        if (P13 > A13 && P24 > A24) {
+            console.log(P13, A13, P24, A24);
+            throw "Not enough space, should not happen, X";
+        }
+        let direction = P13 <= A13 ? -1 : P24 <= A24 ? 1 : 0;
+        while (!(P13 <= A13 && P24 <= A24)) {
+            ++count;
+            x_mid += direction;
+            if (x_min > x_mid || x_mid > x_max) {
+                console.log(x_min, x_mid, x_max);
+                return;
+            }
+            A13 = area([x_min, x_mid, y_min, y_max]);
+            A24 = area([x_mid, x_max, y_min, y_max]);
+            let new_direction = P13 <= A13 ? -1 : P24 <= A24 ? 1 : 0;
+            if (!(P13 <= A13 && P24 <= A24) && new_direction == -direction) {
+                console.log("split the line x!", P13, A13, P24, A24);
+            }
+            console.log("xs", x_min, x_mid, x_max, P13, A13, P24, A24);
+        }
+
+        // search fro y_1
+        let y_1 = y_mid;
+        let A1 = area([x_min, x_mid, y_min, y_mid]);
+        let A3 = area([x_min, x_mid, y_mid, y_max]);
+        if (P1 + P3 > A1 + A3) {
+            console.log(P1, A1, P3, A3);
+            console.log("xs", x_min, x_mid, x_max);
+            console.log("ys", y_min, y_mid, y_max, B1.E[3], B2.E[3], B3.E[3], B4.E[3]);
+            console.log(node.map(i => data[i]));
+            console.log(node, B1.E, B3.E, y_max);
+            throw "Not enough space, should not happen, Y_1";
+        }
+        direction = P1 <= A1 ? -1 : P3 <= A3 ? 1 : 0;
+        while (!(P1 <= A1 && P3 <= A3)) {
+            //} && y_1 < y_max && y_1 > y_min) {
+            //if (direction == 0) throw "y1 dir 0";
+            //++count;
+            y_1 += direction;
+            if (y_min > y_1 || y_1 > y_max) {
+                console.log(y_min, y_1, y_max);
+                //nodes.leftovers.push(...node);
+                return;
+            }
+            A1 = area([x_min, x_mid, y_min, y_1]);
+            A3 = area([x_min, x_mid, y_1, y_max]);
+            let new_direction = P1 <= A1 ? -1 : P3 <= A3 ? 1 : 0;
+            if (!(P1 <= A1 && P3 <= A3) && new_direction == -direction) {
+                console.log("split the line! y_1", P1, A1, P3, A3);
+            }
+        }
+
+        // search for y_2
+        let y_2 = y_mid;
+        let A2 = area([x_mid, x_max, y_min, y_mid]);
+        let A4 = area([x_mid, x_max, y_mid, y_max]);
+        if (P2 > A2 && P4 > A4) {
+            console.log(P2, A2, P4, A4);
+            throw "Not enough space, should not happen, Y_2";
+        }
+        direction = P2 <= A2 ? -1 : P4 <= A4 ? 1 : 0;
+        while (!(P2 <= A2 && P4 <= A4)) {
+            //} && y_2 < y_max && y_2 > y_min) {
+            //if (direction == 0) throw "y2 dir 0";
+            ++count;
+            y_2 += direction;
+            if (y_2 < y_min || y_2 > y_max) {
+                console.log(y_min, y_2, y_max);
+                //nodes.leftovers.push(...node);
+                return;
+            }
+            A2 = area([x_mid, x_max, y_min, y_2]);
+            A4 = area([x_mid, x_max, y_2, y_max]);
+            let new_direction = P2 <= A2 ? -1 : P4 <= A4 ? 1 : 0;
+            if (!(P2 <= A2 && P4 <= A4) && new_direction == -direction) {
+                console.log("split the line! y_2", P2, A2, P4, A4);
+            }
+        }
+
+        // set new borders
+        B1.E[1] = x_mid;
+        B3.E[1] = x_mid;
+        B2.E[0] = x_mid;
+        B4.E[0] = x_mid;
+        B1.E[3] = y_1;
+        B3.E[2] = y_1;
+        B2.E[3] = y_2;
+        B4.E[2] = y_2;
+        node.children.forEach((child) => fit(child, count, data));
+    }
+
+    let nodes = [];
+    function gridify_gridfit(D) {
+        const N = D.length;
+        nodes = [];
+        nodes.final = [];
+        nodes.leftovers = [];
+        let count = 0;
+        // do the gridfit;
+
+        // create quadtree;
+        const root = d3.range(0, N);
+        root.E = extent(root, D);
+        root.P = N;
+        quadtree(D, root, root.E, nodes);
+
+        // fit to grid;
+        try {
+            fit(root, count, D);
+        } catch (e) {
+            console.error(e);
+        } finally {
+            console.log("count:", count);
+            return nodes;
+        }
+    }
+
+    /*
+    https://doi.org/10.3390/sym11060731
+
+    Hierarchical Hexagonal Clustering and Indexing
+    by Vojtěch Uher 1,Petr Gajdoš 1,Václav Snášel 1, Yu-Chi Lai 2 and Michal Radecký 1
+
+    1 Department of Computer Science, VŠB-Technical University of Ostrava, Ostrava-Poruba 708 00, Czech Republic
+    2 Department of Computer Science and Information Engineering, National Taiwan University of Science and Technology, 43, Sec.4, Keelung Rd., Taipei 106, Taiwan
+    */
+    const REC_SQRT7 = 0.3779644730092272; // 1 / Math.sqrt(7)
+    const SQRT3_DIV_3 = 0.5773502691896257; // Math.sqrt(3) / 3
+    const ALPHA = 0.3334731722518321; // Math.asin(Math.sqrt(3) / (2 * Math.sqrt(7)))
+    const SQRT7 = 2.6457513110645907; // Math.sqrt(7)
+
+    // transform to node gosper pattern
+    const transform_index = [4, 0, 1, 2, 3, 6, 5];
+
+    // precomputed array of circles inscribed into Gosper islands of different levels
+    const inscribed_circles = [0.755928946000, 0.755928946000, 0.750121467308, 0.746782631146, 0.746782631146, 0.746577727521, 0.746348363909, 0.746348363909, 0.746344578768, 0.746327538283, 0.746327538283, 0.746327538283, 0.746326555879, 0.746326555879, 0.746326555879, 0.746326510616, 0.746326510616, 0.746326510616, 0.746326508597, 0.746326508597, 0.746326508597];
+
+    function xy2cube([x, y], size) {
+        const cx = (x * SQRT3_DIV_3 - y * 1 / 3) / size;
+        const cz = y * 2 / 3 / size;
+        const cy = -cx - cz;
+        return [cx, cy, cz];
+    }
+
+    function cube2xy([cx, cy, cz], size) {
+        const x = (3 / 2 * cx) * size;
+        const y = (Math.sqrt(3) * (cx / 2 + cz)) * size;
+        return [x, y];
+    }
+
+    function B([x, y, z], thd = 10e-3) {
+        const [ax, ay, az] = [x, y, z].map(v => Math.abs(v));
+        if (ax < thd && ay < thd && az < thd) {
+            return 0;
+        } else if (ax > ay && ax > az) { // x dominant
+            return x > 0 ? 2 : 5;
+        } else if (ay > ax && ay > az) { // y dominant
+            return y > 0 ? 4 : 1;
+        } else if (az > ax && az > ay) { // z dominant
+            return z > 0 ? 6 : 3;
+        }
+    }
+
+    function cube_round([x, y, z]) {
+        let [l, m, n] = [x, y, z].map(d => Math.round(d));
+        let [dx, dy, dz] = [l - x, m - y, n - z].map(d => Math.abs(d));
+        if (dx > dy && dx > dz) {
+            l = -m - n;
+        } else if (dy > dz) {
+            m = -l - n;
+        } else {
+            n = -l - m;
+        }
+        return [l, m, n].map(d => parseInt(Math.round(d)));
+    }
+
+    function inverse_transform([x, y, z]) {
+        const nx = (3 * x + z);
+        const nz = (-x + 2 * z);
+        return [nx, -nx - nz, nz];
+    }
+
+    function get_size(D, level) {
+        let min_x = Infinity;
+        let max_x = -Infinity;
+        let min_y = Infinity;
+        let max_y = -Infinity;
+        D.forEach(([x, y]) => {
+            min_x = x < min_x ? x : min_x;
+            max_x = x > max_x ? x : max_x;
+            min_y = y < min_y ? y : min_y;
+            max_y = y > max_y ? y : max_y;
+        });
+
+        const half_diagional = Math.sqrt(Math.pow(max_x - min_x, 2) + Math.pow(max_y - min_y, 2)) / 2;
+        const s = half_diagional / inscribed_circles[level];
+        return s * Math.pow(REC_SQRT7, level);
+    }
+
+    const f_yArr = [-2.0943951023931953, 0, 0, -2.0943951023931953, 0, 2.0943951023931953, 0];
+    function f_y(i) {
+        //[-120, 0, 0, -120, 0, 120, 0].map(d => d / 180 * Math.PI)
+        return f_yArr[i];
+    }
+
+    const gammaArr = [0, -1.0471975511965976, -2.0943951023931953, -3.141592653589793, 0, 1.0471975511965976, 2.0943951023931953];
+    function gamma(i) {
+        //[0, 60, 120, 180, 0, -60, -120].map(d => -d / 180 * Math.PI)
+        return gammaArr[i];
+    }
+
+    function rotate([x, y], alpha) {
+        const sin_alpha = Math.sin(alpha);
+        const cos_alpha = Math.cos(alpha);
+        return [cos_alpha * x - sin_alpha * y,
+        sin_alpha * x + cos_alpha * y]
+    }
+
+    function scale([x, y], s) {
+        return [x * s, y * s];
+    }
+
+    //export function gosper_encode(b, level, size) {
+    function gosper_encode([xp, yp], level, size) {
+        //let size = Math.pow(1 / SQRT7, level - 1);
+        const b = new Array(level);
+        let [x, y, z] = xy2cube([xp, yp], size);
+        let [rx, ry, rz] = cube_round([x, y, z]);
+        let p = cube2xy([rx, ry, rz], size);
+        for (let i = 1; i <= level; ++i) {
+            p = scale(p, Math.pow(REC_SQRT7, i));
+            p = rotate(p, -ALPHA * i);
+            [x, y, z] = xy2cube(p, size);
+            [rx, ry, rz] = cube_round([x, y, z]);
+            b[level - i] = B([x - rx, y - ry, z - rz]);
+            if (i == level) continue;
+            p = cube2xy([rx, ry, rz], size);
+            p = scale(p, Math.pow(SQRT7, i));
+            p = rotate(p, ALPHA * i);
+        }
+        //let b = new Array(level); // final position array
+        /* let sign; // sign of decimal residue;
+        let mini; // hexagon index according to the center pattern
+
+        let [dx, dy, dz] = xy2cube([x, y], size);
+        let [ix, iy, iz] = [dx, dy, dz].map(Math.round);
+        [ix, iy, iz] = cube_abs_diff([ix, iy, iz], [dx, dy, dz]);
+
+        for (let l = 0; l < level; ++l) {
+            //hexcode *= 6;
+            [dx, dy, dz] = transform([ix, iy, iz]);
+            [ix, iy, iz] = [dx, dy, dz].map(Math.round);
+
+            dx -= ix;
+            dy -= iy;
+            dz -= iz;
+
+            let dominant = (Math.abs(dz) > Math.abs(dx)) ? 1 : 0 + (Math.abs(dz) > Math.abs(dy)) ? 1 : 0;
+            dominant = (dominant == 2 ? dominant : (Math.abs(dy) > Math.abs(dx) ? 1 : 0));
+            sign = [dx, dy, dz][dominant] < 0 ? 1 : 0;
+
+            if (Math.abs([dx, dy, dz][dominant]) < 0.00001) {
+                mini = 0;
+            } else {
+                mini = pattern_index[sign][dominant];
+            }
+
+            b[level - l - 1] = mini;
+        } */
+
+        // next step
+        let rotDir = 0;
+        let order = true;
+        const k = new Array(level);
+        for (let i = 0; i < level; ++i) {
+            let bi = b[i];
+            if (bi != 0 && rotDir != 0) {
+                bi += 2 * rotDir;
+                if (bi < 1) {
+                    bi += 6;
+                } else if (bi > 6) {
+                    bi -= 6;
+                }
+            }
+            let ki = transform_index[bi];
+            if (ki == 0 || ki == 3) {
+                --rotDir;
+                if (rotDir < -1) rotDir = 1;
+            } else if (ki == 5) {
+                ++rotDir;
+                if (rotDir > 1) rotDir = -1;
+            }
+            if (!order) {
+                k[i] = 6 - ki;
+            } else {
+                k[i] = ki;
+            }
+            if (ki == 0 || ki == 4 || ki == 5) {
+                order = !order;
+            }
+        }
+        return k//.reduce((a, b) => a * 7 + b);
+    }
+
+    /**
+     * 
+     * @param {Array<Number>} t - hierarchical index of gosper curve 
+     * @param {Number} level - level of gosper curve
+     * @param {Number} size - grid size of goster curve 
+     * @returns {[Number, Number]} - 2d position of index {@link t} on a gospercurve with level {@link level}, and grid size {@link size}.
+     */
+    function gosper_decode(t, level, size) {
+        //console.log("decode", t, level, size)
+        /* const k = new Uint8Array(level - 1).fill(0);
+        for (let i = level - 1; i >= 0; --i) {
+            const mod_t = t % 7;
+            k[i] = mod_t;
+            t = (t - mod_t) / 7;
+        } */
+        const k = t;
+        let d = [-size, 0, 0];
+        for (let l = 0; l < level - 1; ++l) {
+            d = inverse_transform(d);
+        }
+        d = cube2xy(d, 1);
+
+        //rotate([-size * Math.pow(Math.sqrt(7), level - 1), 0], (0) * ALPHA);
+        let c = [0, 0];
+        let ord = true;
+        for (let i = 0; i < level; ++i) {
+            let ki = (i > 0 && !ord) ? (6 - k[i]) : k[i];
+            const dk = rotate(d, gamma(ki));
+            if (ki != 4) {
+                c = [c[0] + dk[0], c[1] + dk[1]];
+            }
+            d = rotate(d, ALPHA + f_y(ki));
+            d = scale(d, REC_SQRT7);
+            if (ki == 0 || ki == 4 || ki == 5) {
+                ord = !ord;
+            }
+        }
+        return c;
+    }
+
+    function distance([ax, ay], [bx, by]) {
+        return Math.hypot(bx - ax, by - ay);
+    }
+
+    function collision(P, p, d, i, level, size) {
+        const e = 7 ** level;
+        const valid = (p) => p >= 0 && p <= e;
+        let pl = p;
+        let pr = p;
+        while (true) {
+            ++pl; --pr;
+            const el = !P.has(pl);
+            const er = !P.has(pr);
+            const vl = valid(pl);
+            const vr = valid(pr);
+            if (vl && el && !er) {
+                P.set(pl, i);
+                return;
+            } else if (!el && vr && er) {
+                P.set(pr, i);
+                return;
+            } else if (el && er) {
+                if (vl && vr) {
+                    let dl = distance(d, gosper_decode(pl, level, size));
+                    let dr = distance(d, gosper_decode(pr, level, size));
+                    P.set(dl < dr ? pl : pr, i);
+                    return;
+                } else if (vl) {
+                    P.set(pl, i);
+                    return;
+                } else if (vr) {
+                    P.set(pr, i);
+                    return;
+                }
+            }
+        }
+    }
+
+    function gridify_gosper(D, { level: level }) {
+        const size = get_size(D, level);
+        const N = D.length;
+        const P = new Map();
+        const Y = new Array(N).fill(0);
+
+        D.forEach((d, i) => {
+            const [x, y] = d.map(Math.round);
+            let p = gosper_encode([x, y], level, size);
+            if (P.get(p)) { // collision detected
+                collision(P, p, d, i, level, size);
+            } else {
+                P.set(p, i);
+            }
+        });
+
+        for (const [p, i] of P.entries()) {
+            console.log("i", i, "p", p);
+            Y[i] = gosper_decode(p, level, size);
+        }
+        console.log(P);
+        return Y;
+    }
+
+    //import { gridify_gridfit } from "./gridfit.js";
+
+    function gridify(data, method = "hilbert", parameters = {}) {
+        if (method == "hilbert") {
+            if (!Object.keys(parameters).includes("pluslevel")) {
+                parameters.pluslevel = 0;
+            }
+            if (!("whitespace" in parameters)) {
+                parameters.whitespace = 1;
+            }
+            const level = Math.ceil(Math.log2(data.length * parameters.whitespace) / Math.log2(4)) + parameters.pluslevel;
+            const size = Math.pow(2, level);
+            const { x: ux, y: uy, width: w, height: h } = get_bounds(data);
+            const original_bounding_box = [ux, uy, w, h];
+            const gridded_bounding_box = [0, 0, size, size];
+            const D = data.map((d) => remap(d, original_bounding_box, gridded_bounding_box));
+            const start = performance.now();
+            const res = gridify_hilbert(D, { level: level });
+            const end = performance.now();
+            res.runtime = end - start;
+            return res;
+        } else if (method ===  "gosper") {
+            const level = Math.ceil(Math.log2(data.length) / Math.log2(7) + 1) + parameters.pluslevel;
+            const start = performance.now();
+            const res = gridify_gosper(data, { level: level });
+            const end = performance.now();
+            res.runtime = end - start;
+            return res;
+        } else if (method === "dgrid") {
+            if (parameters && Object.keys(parameters).length == 0) {
+                parameters = {};
+                parameters.aspect_ratio = 1;
+            }
+            const start = performance.now();
+            const res = gridify_dgrid(data, parameters);
+            const end = performance.now();
+            res.runtime = end - start;
+            return res;
+        } else if (method === "cmds") {
+            parameters.alpha = parameters.alpha ? parameters.alpha : 0.1;
+            parameters.Gamma = parameters.Gamma ? parameters.Gamma : (() => {
+                const { x: min_x, y: min_y, width: wx, height: hy } = get_bounds(data);
+                const w = Math.max(wx, hy);
+                return {
+                    x1: min_x,
+                    x2: min_x + w,
+                    y1: min_y,
+                    y2: min_y + w,
+                }
+            })();
+            parameters.size = parameters.size ? parameters.size : (() => {
+                const { x1, x2, y1, y2 } = parameters.Gamma;
+                const w = Math.max(x2 - x1, y2 - y1);
+                const area = w ** 2 / ((Math.sqrt(data.length) + 1) ** 2);
+                return Math.sqrt(area);
+            })();
+            const start = performance.now();
+            const res = gridify_cmds(data, parameters);
+            const end = performance.now();
+            res.runtime = end - start;
+            return res;
+        } else if (method === "nmap") {
+            const start = performance.now();
+            const res =  gridify_nmap(data, parameters);
+            const end = performance.now();
+            res.runtime = end - start;
+            return res;
+        } else {
+            throw "not a valid method!";
+        }
+    }
+
+    exports.gosper_curve = gosper_curve;
+    exports.gosper_decode = gosper_decode$1;
+    exports.gosper_encode = gosper_encode$1;
+    exports.gridify = gridify;
     exports.gridify_cmds = gridify_cmds;
     exports.gridify_dgrid = gridify_dgrid;
-    exports.gridify_gosper = gridify_gosper;
+    exports.gridify_gosper = gridify_gosper$1;
+    exports.gridify_gridfit = gridify_gridfit;
     exports.gridify_hilbert = gridify_hilbert;
     exports.gridify_nmap = gridify_nmap;
     exports.hilbert_decode = hilbert_decode;
     exports.hilbert_encode = hilbert_encode;
+    exports.utils = utils;
     exports.version = version;
 
     Object.defineProperty(exports, '__esModule', { value: true });

@@ -1,5 +1,5 @@
 import json from '@rollup/plugin-json';
-import {terser} from 'rollup-plugin-terser';
+import { terser } from 'rollup-plugin-terser';
 import resolve from 'rollup-plugin-node-resolve';
 
 export default {
@@ -10,8 +10,13 @@ export default {
     format: 'umd'
   },
   {
+    file: 'dist/hagrid.es.js',
+    name: 'hagrid',
+    format: 'es'
+  },
+  {
     file: 'dist/hagrid.min.js',
-    format: 'iife',
+    format: 'umd',
     name: 'hagrid',
     plugins: [terser()]
   }],

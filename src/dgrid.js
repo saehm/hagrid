@@ -1,11 +1,8 @@
 
-let times = [];
-
 function dgrid(G, P, r, s, i=0, j=0) {
     const N = P.length;
     if (N == 0) return
     else if (N == 1) {
-        times.push(performance.now())
         G.push({
             d: P[0],
             i: i,
@@ -31,19 +28,18 @@ function split(P, dim, pos) {
     return [sorted.slice(0, pos), sorted.slice(pos)];
 }
 
-export async function gridify_dgrid(D, size) {
-    console.log(size)
+export function gridify_dgrid(D, parameters) {
     const N = D.length;
     let rows;
     let cols;
-    if ("rows" in size && "cols" in size) {
-        rows = size.rows;
-        cols = size.cols;
-    } else if (size == "square") {
+    if ("rows" in parameters && "cols" in parameters) {
+        rows = parameters.rows;
+        cols = parameters.cols;
+    } else if (parameters == "square") {
         rows = Math.ceil(Math.sqrt(N));
         cols = Math.ceil(Math.sqrt(N));
-    } else if ("aspect_ratio" in size) {
-        rows = Math.floor(Math.sqrt(N * size.aspect_ratio));
+    } else if ("aspect_ratio" in parameters) {
+        rows = Math.floor(Math.sqrt(N * parameters.aspect_ratio));
         cols = Math.ceil(N / rows)
     } else {
         throw "wrong parameters!"

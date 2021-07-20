@@ -1,3 +1,5 @@
+import { get_bounds } from "./utils.js"
+
 function nmap(G, P, R, direction=true) {
     const N = P.length;
     const N_half = Math.floor(N/2);
@@ -46,27 +48,6 @@ function nmap(G, P, R, direction=true) {
     }
 }
 
-function getBounds(D) {
-    let min_x = Infinity;
-    let max_x = -Infinity;
-    let min_y = Infinity;
-    let max_y = -Infinity;
-
-    D.forEach(([x, y, i]) => {
-        min_x = Math.min(min_x, x)
-        max_x = Math.max(max_x, x)
-        min_y = Math.min(min_y, y)
-        max_y = Math.max(max_y, y)
-    })
-
-    return {
-        "x": min_x,
-        "y": min_y,
-        "width": max_x - min_x,
-        "height": max_y - min_y,
-    }
-}
-
 function affine_transform_points(D, [[scale_x, shear_x, translate_x], [scale_y, shear_y, translate_y]]) {
     return D.map(([x, y, i]) => [
         x * scale_x + y * shear_x + translate_x,
@@ -101,7 +82,7 @@ function sizes(Da, Db, size) {
 
 // https://github.com/sebastian-meier/nmap-squared.js/blob/master/nmap-squared.js
 function squared(D, {x: x0, y: y0, width, height}) {
-    const BB2 = getBounds(D);
+    const BB2 = get_bounds(D);
     let sx = width / BB2.width;
     let sy = height / BB2.height;
     if (sx < sy) {
@@ -155,17 +136,20 @@ function calcDist(A, B) {
     return A.sort((a, b) => a.dist - b.dist);
 }
 
-export async function gridify_nmap(D, parameters) {
+export function gridify_nmap(D, parameters) {
     let G = [];
     console.log(parameters)
     if (!"BB" in parameters || parameters.BB == null) {
         console.log("no BB")
-        parameters.BB = getBounds(D)
+        parameters.BB = get_bounds(D)
     }
     let added_index = D.map(([x, y], i) => [x, y, i]);
     if ("squared" in parameters && parameters.squared == true) {
         added_index = squared(added_index, parameters.BB);
     }
     nmap(G, added_index, parameters.BB, false);
-    return G.sort((a, b) => a.d[2] - b.d[2]).filter(d => d.d[2] != undefined)//.map(g => [g.j, g.i])
+    return G
+        .filter(d => d.d[2] != undefined)
+        .sort((a, b) => a.d[2] - b.d[2])
+        .map(({x, y, width, height}) => [x + width / 2, y + height / 2])
 }
