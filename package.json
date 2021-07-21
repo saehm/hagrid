@@ -20,7 +20,7 @@
     "main": "dist/hagrid.js",
     "unpkg": "dist/hagrid.min.js",
     "jsdelivr": "dist/hagrid.min.js",
-    "module": "dist/druid.esm.js",
+    "module": "dist/hagrid.esm.js",
     "devDependencies": {
         "@rollup/plugin-json": "^4.1.0",
         "rollup": "^2.53.2",
