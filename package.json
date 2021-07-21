@@ -1,6 +1,6 @@
 {
     "name": "@saehrimnir/hagrid",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "homepage": "https://renecutura.eu",
     "author": {
       "name": "Rene Cutura",
@@ -20,7 +20,7 @@
     "main": "dist/hagrid.js",
     "unpkg": "dist/hagrid.min.js",
     "jsdelivr": "dist/hagrid.min.js",
-    "module": "dist/hagrid.esm.js",
+    "module": "dist/hagrid.es.js",
     "devDependencies": {
         "@rollup/plugin-json": "^4.1.0",
         "rollup": "^2.53.2",
