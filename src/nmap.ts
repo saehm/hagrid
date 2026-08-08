@@ -15,6 +15,34 @@ type Region = Bounds & { d?: FillerPoint };
 type Affine = [[number, number, number], [number, number, number]];
 
 /**
+ * Rejects a subdivision that cannot be scaled.
+ *
+ * The split boundary is the midpoint between the two halves along the split
+ * axis. When every point in the region shares that coordinate the boundary
+ * lands on the region's own edge, one side gets zero extent, and the affine
+ * scale becomes `share / 0` — `NaN` if the share is zero too. That used to
+ * propagate silently through every child region, so the layout came back full
+ * of `null`s with no indication of why.
+ *
+ * Note this is not prevented by the points being distinct: four points on a
+ * vertical line are all different yet share an `x`, and an integer lattice
+ * trips it too.
+ */
+function assert_splittable(axis: "x" | "y", a: number, b: number, count: number): void {
+    // Only an exact zero is fatal. Extents are routinely negative here — the
+    // points are sorted descending and the affine transforms can flip a
+    // rectangle — and a negative extent still divides perfectly well.
+    if (a !== 0 && b !== 0 && Number.isFinite(a) && Number.isFinite(b)) return;
+    throw new Error(
+        `gridify_nmap: cannot subdivide ${count} points along ${axis} — every point in ` +
+            `this region shares the same ${axis} coordinate, so there is no extent to ` +
+            `divide. nmap needs each subdivision to have spread on the axis it is cut ` +
+            `along; integer or rounded coordinates commonly break this. Jitter the input ` +
+            `slightly, or use another method such as "gilbert" or "hilbert".`,
+    );
+}
+
+/**
  * Recursively splits the region alongside the point set, alternating between
  * vertical and horizontal cuts, until each region holds a single point.
  */
@@ -36,6 +64,7 @@ function nmap(G: Region[], P: FillerPoint[], R: Region, direction = true): void 
             Ra.width = bh - R.x;
             Rb.x += Ra.width;
             Rb.width = R.width - Ra.width;
+            assert_splittable("x", Ra.width, Rb.width, N);
             const HRa: Affine = [
                 [wRa / Ra.width, 0, R.x * (1 - wRa / Ra.width)],
                 [0, 1, 0],
@@ -52,6 +81,7 @@ function nmap(G: Region[], P: FillerPoint[], R: Region, direction = true): void 
             Ra.height = bv - R.y;
             Rb.y = R.y + Ra.height;
             Rb.height = R.height - Ra.height;
+            assert_splittable("y", Ra.height, Rb.height, N);
             const VRa: Affine = [
                 [1, 0, 0],
                 [0, hRa / Ra.height, R.y * (1 - hRa / Ra.height)],
@@ -99,15 +129,18 @@ function split(P: FillerPoint[], pos: number): [FillerPoint[], FillerPoint[]] {
 /**
  * Divides `size` between the two halves in proportion to their point counts.
  *
- * BUG (pre-existing, preserved for now): the second element uses `pA` where it
- * should use `pB`, so the split is not proportional unless the halves are
- * equal. Fixing it changes every nmap output, so it is deferred rather than
- * folded into the TypeScript port. See the Phase 2 notes.
+ * The two shares must add back up to `size`, because the left half is pinned to
+ * the region's left edge and the right half to its right edge. The original
+ * returned `pA`'s share twice, so whenever the halves were uneven — every split
+ * of an odd number of points — they summed to less than `size` and left a gap
+ * down the middle that nothing ever filled. The outer extent looked fine, which
+ * is why this went unnoticed; the interior did not tile.
  */
 function sizes(Da: FillerPoint[], Db: FillerPoint[], size: number): Point {
     const pA = Da.length;
     const pB = Db.length;
-    return [(pA / (pA + pB)) * size, (pA / (pA + pB)) * size];
+    const total = pA + pB;
+    return [(pA / total) * size, (pB / total) * size];
 }
 
 /**
@@ -196,11 +229,47 @@ export interface NMapParameters {
     squared?: boolean;
 }
 
+/** A rectangle owned by one input point. */
+export interface NMapCell extends Bounds {
+    /** Index into the original input. */
+    index: number;
+}
+
+/**
+ * The rectangles N-Map assigns, one per input point, in input order.
+ *
+ * {@link gridify_nmap} reduces these to their centres; this exposes the cells
+ * themselves, which is what you want to draw a treemap — and what makes the
+ * tiling verifiable.
+ *
+ * Throws if any subdivision has no extent along the axis it is being cut on —
+ * see {@link assert_splittable}. Distinct points are not enough to guarantee
+ * this: collinear runs and integer lattices both trip it.
+ */
+export function nmap_regions(
+    D: readonly Point[],
+    parameters: NMapParameters = {},
+): NMapCell[] {
+    const G: Region[] = [];
+    const BB = parameters.BB ?? get_bounds(D);
+    let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
+    if (parameters.squared === true) {
+        added_index = squared(added_index, BB);
+    }
+    nmap(G, added_index, { ...BB }, false);
+    return G.filter((d) => d.d![2] !== undefined)
+        .sort((a, b) => (a.d![2] as number) - (b.d![2] as number))
+        .map(({ x, y, width, height }, i) => ({ x, y, width, height, index: i }));
+}
+
 /**
  * Removes overlaps with the space-filling N-Map treemap approach, recursively
  * subdividing the plotting area so each point owns a rectangle.
  *
- * @param D - Input points.
+ * Throws if any subdivision has no extent along the axis it is being cut on —
+ * see {@link assert_splittable}. Distinct points are not enough to guarantee
+ * this: collinear runs and integer lattices both trip it.
+ * * @param D - Input points.
  * @returns The centre of each point's rectangle, in input order.
  */
 export function gridify_nmap(

@@ -194,6 +194,58 @@ step length are unchanged and indexing round-trips exactly in either orientation
 switching turns the lattice *underneath* the data rather than carrying each point to a matching
 cell, so points are reassigned — that is usually the point of the option.
 
+## N-Map tiles the plot area
+
+`nmap` partitions the plotting area, so its rectangles should cover the bounding box exactly. They
+did not: `sizes()` gave the first half's share to *both* halves, and since the left half is pinned
+to the region's left edge and the right half to its right edge, shares that do not add up to the
+full size leave a gap down the middle.
+
+The outer extent still looked right, which is why it went unnoticed — the interior simply did not
+tile:
+
+| N | covered before | covered after |
+| ---- | ---- | ---- |
+| 8 | 100% | 100% |
+| 50 | 62.6% | **100%** |
+| 101 | 61.6% | **100%** |
+| 500 | 88.9% | **100%** |
+| 1 001 | 89.0% | **100%** |
+
+N = 8 was always correct because an even split has `pA === pB`, so the wrong share happened to be
+the right one — the bug only ever fired on odd counts.
+
+The rectangles are now available directly, which is what you want for drawing a treemap:
+
+```js
+const cells = hagrid.nmap_regions(data);   // [{ x, y, width, height, index }, ...]
+```
+
+### nmap needs spread on both axes
+
+`nmap` cuts a region at the midpoint between the two halves of its points. If every point in that
+region shares the split coordinate, the boundary lands on the region's own edge, one side gets zero
+extent, and the affine scale becomes `share / 0`. That used to propagate silently, so the layout
+came back full of `null`s with nothing to indicate why. It now throws with the offending axis named.
+
+**Distinct points are not enough.** All of these are 100% unique and all of them fail:
+
+| input | n | outcome |
+| ---- | ---- | ---- |
+| four points on a vertical line | 4 | throws |
+| 10×10 integer lattice | 100 | throws |
+| coordinates rounded to integers | 194 | throws |
+| points along a diagonal | 16 | fine |
+| continuous random | 200 | fine |
+
+The property that matters is spread on *both* axes within every subdivision, which is why the
+diagonal survives (every `x` and every `y` distinct) and the lattice does not. Quantised data —
+counts, scores, rounded measurements — commonly trips it. Jitter the input slightly, or use
+`gilbert` or `hilbert`, which have no such requirement.
+
+A real fix would fall back to a proportional split when a region is degenerate, placing tied points
+in adjacent cells. That is not done yet.
+
 ## Elongated data
 
 `hilbert` needs a square, power-of-two grid, so a wide dataset is either stretched out of shape or
@@ -230,7 +282,6 @@ steps off it by growing the long side by one — a single extra row or column. P
 ## Known issues
 
 - `gosper` does not preserve the data's aspect ratio for elongated inputs; use `gilbert` for those.
-- `nmap` produces non-finite positions on inputs with many duplicate coordinates — 135 of 400 on a
-  1000x10 grid-like dataset. Pre-existing: `0.1.1` does the same. Related to the `sizes()` bug below.
-- `nmap`'s internal `sizes()` splits a region using the first half's point count for both halves, so subdivisions are not proportional. Preserved for now because fixing it changes every `nmap` output.
+- `nmap` cannot lay out data where a subdivision has no spread on the axis it is cut along, and now
+  throws rather than returning `NaN`. See below.
 - `gridfit` runs but has not been validated against its paper.

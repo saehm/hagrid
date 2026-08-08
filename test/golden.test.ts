@@ -3,6 +3,12 @@
  * JavaScript bundle (v0.1.x). Any difference here is a regression in the port,
  * not a change in taste — deliberate behaviour changes must re-record the
  * fixtures and say why in the commit.
+ *
+ * `hilbert` and `dgrid` are still pinned to the original v0.1.1 output. The
+ * `nmap` entries were re-recorded when `sizes()` was fixed: it had been giving
+ * the first half's share to both halves, leaving up to 38% of the plotting
+ * area as gaps. Those entries carry a `rerecorded` note, and the tiling
+ * property that replaced them is checked directly in `nmap.test.ts`.
  */
 import { describe, expect, it } from "vitest";
 
