@@ -32,6 +32,13 @@ function compute_overlap([px, py]: Point, [qx, qy]: Point, s: number): number {
     return 0;
 }
 
+/**
+ * Overlap below this fraction of a node counts as none. Used both to decide
+ * which pairs get a separation edge and to decide when the layout is done;
+ * the two must agree or a pair can sit permanently between them.
+ */
+const OVERLAP_EPS = 1e-3;
+
 /** An edge of the proximity graph, carrying its ideal separation `delta`. */
 export interface ProximityEdge {
     source: number;
@@ -74,46 +81,115 @@ function create_proximity_graph(
                 delta: odistance + overlap,
             };
         }).filter(({ target, overlap }) => {
-            const keep_overlap = overlap > 1e-2;
+            // Threshold relative to the node, and identical to the one the end
+            // condition uses. An absolute 1e-2 meant that once nodes shrank
+            // below ~10 units, pairs overlapping by more than the end
+            // condition tolerated but less than 1e-2 got no separation edge —
+            // so they were counted as overlapping forever and never fixed.
+            const keep_overlap = overlap > s * OVERLAP_EPS;
             const keep_neighbor = neighbors.indexOf(target) >= 0;
             return augment ? keep_overlap || keep_neighbor : keep_neighbor;
         });
     }).flat();
 }
 
-/** True once no overlaps remain and every point sits inside `Gamma`. */
+/**
+ * Algorithm 1 terminates when "all data items are inside Γ with no overlap".
+ *
+ * Both halves are per-item, not aggregate. The previous form summed the overlap
+ * across every edge and compared it to a constant 1, which with ~570 edges
+ * demanded an average overlap below 0.002 — far stricter than "no overlap" and
+ * never satisfiable in practice.
+ *
+ * `Gamma` here is already inset by half a node (§4.2), so a centre inside it
+ * means the whole node is displayed. The epsilon is numerical slack, not
+ * tolerance for a real excursion: the update in (4) is a weighted average that
+ * lands centres a few 1e-3 outside a 99-unit region, and an exact comparison
+ * rejected layouts that had genuinely succeeded.
+ */
 function end_condition(
     proximity_graph: readonly ProximityEdge[],
     G: readonly Point[],
     { x1, x2, y1, y2 }: Region,
+    size: number,
 ): boolean {
-    const tol = 1;
-    const sum_overlaps = proximity_graph.reduce((a, b) => a + b.overlap, 0);
-    const inside_Gamma = G.map(
-        ([px, py]) => px >= x1 && px <= x2 && py >= y1 && py <= y2,
-    ).reduce((a, b) => a && b, true);
-    return sum_overlaps < tol && inside_Gamma;
+    // A thousandth of a node: visually nothing, but comfortably above the
+    // few-1e-4-of-a-node drift the weighted average in (4) leaves behind.
+    const eps = size * OVERLAP_EPS;
+    for (const e of proximity_graph) {
+        if (e.overlap > eps) return false;
+    }
+    for (const [px, py] of G) {
+        if (px < x1 - eps || px > x2 + eps || py < y1 - eps || py > y2 + eps) return false;
+    }
+    return true;
+}
+
+/**
+ * The `m × n` grid of §4.2: small enough that every cell is used, large enough
+ * to hold every item. The paper's conditions are `N ≤ m·n`, `m·(n−1) ≤ N` and
+ * `(m−1)·n ≤ N`. A cell is also the node size.
+ */
+export function cmds_grid(width: number, height: number, count: number): [number, number] {
+    const aspect = height > 0 && Number.isFinite(width / height) ? width / height : 1;
+    let m = Math.max(1, Math.ceil(Math.sqrt(count * aspect)));
+    let n = Math.max(1, Math.ceil(count / m));
+    // Trim any row or column that is not needed; dropping one keeps m·n ≥ N.
+    while (m > 1 && (m - 1) * n >= count) --m;
+    while (n > 1 && m * (n - 1) >= count) --n;
+    return [m, n];
 }
 
 /** Parameters for {@link gridify_cmds}. */
 export interface CMDSParameters {
     /** Boundary the layout is confined to. */
     Gamma: Region;
-    /** Glyph size; also the grid pitch the result is snapped to. */
-    size: number;
-    /** Weight of the boundary constraint. Defaults to `0.1`. */
+    /**
+     * Starting node size, also the grid pitch the result is snapped to.
+     *
+     * Defaults to a cell of the `m × n` grid of §4.2. If the layout does not
+     * converge this shrinks, so it is a starting point rather than a fixed
+     * value — see {@link gridify_cmds}.
+     */
+    size?: number;
+    /** Weight of the boundary constraint. Defaults to `0.1`, per §4.2. */
     alpha?: number;
-    /** Maximum outer iterations. Defaults to `50`. */
+    /** Inner iterations per round, `N` in Algorithm 1. Defaults to `20`, per §4.2. */
+    inner_iterations?: number;
+    /**
+     * Rounds of Algorithm 1 before the grid is grown. Defaults to `10`.
+     *
+     * Extra rounds at a fixed node size buy little: the overlap correction is
+     * dropped as soon as it succeeds, so the layout oscillates rather than
+     * settling. Growing the grid is what makes progress.
+     */
     max_iter?: number;
+    /** How many times the grid may grow before giving up. Defaults to `60`. */
+    max_rescales?: number;
 }
 
-/** One step of the optimisation: the current layout and its proximity graph. */
-export type CMDSStep = [Point[], ProximityEdge[]];
+/**
+ * One step of the optimisation: the current layout, its proximity graph, and
+ * the node size in force. The size changes when the grid is grown.
+ */
+export type CMDSStep = [Point[], ProximityEdge[], number];
 
 /**
- * Removes overlaps with constrained MDS: stress majorization toward ideal
- * distances that include the glyph overlap, with the layout pulled back into
- * `Gamma`, then snapped to a grid of pitch `size`.
+ * Removes overlaps with constrained MDS (Liu, Hu, North & Shen, *Computer
+ * Graphics Forum* 37(1), 2018), then snaps the result to a grid.
+ *
+ * Algorithm 1 alternates 20 stress-majorization updates of (4) with rebuilding
+ * the Delaunay proximity graph, augmented with edges for overlapping pairs,
+ * until every item is inside `Gamma` with no overlap.
+ *
+ * Convergence depends on the nodes being small enough relative to `Gamma`, so
+ * §4.2 grows the `m × n` grid by one row or column and rescales the nodes
+ * whenever a run does not converge. Without that the layout oscillates
+ * indefinitely — the overlap correction is dropped as soon as it succeeds,
+ * so the springs pull everything back together and the overlap returns.
+ *
+ * `Gamma` is inset by half a node, per §4.2, so a node whose centre is inside
+ * it is fully displayed.
  *
  * Yields each intermediate layout, so callers can animate the optimisation.
  * The final yield is the grid-snapped result.
@@ -126,48 +202,117 @@ export async function* gridify_cmds(
 ): AsyncGenerator<CMDSStep, void, undefined> {
     const N = D.length;
     const Gamma = parameters.Gamma;
-    const s = parameters.size;
     const alpha = parameters.alpha ?? 0.1;
-    let max_iter = parameters.max_iter ?? 50;
+    const inner = parameters.inner_iterations ?? 20;
+    const max_iter = parameters.max_iter ?? 10;
+    const max_rescales = parameters.max_rescales ?? 60;
 
-    // copy D
-    let G: Point[] = D.map(([x, y]) => [x, y] as Point);
-    // construct proximity graph and calculate the ideal distances according to (3)
-    let proximity_graph = create_proximity_graph(G, D, s, false);
+    const W = Gamma.x2 - Gamma.x1;
+    const H = Gamma.y2 - Gamma.y1;
 
-    do {
-        for (let it = 0; it < 20; ++it) {
-            // update step according to (4)
-            const nominator: Point[] = Array.from({ length: N }, () => [0, 0]);
-            const denominator: number[] = Array.from({ length: N }, () => 0);
+    // §4.2: an m × n grid that fits Gamma and holds every item; a cell is the
+    // node size. An explicit `size` just picks the starting grid instead.
+    let [m, n] =
+        parameters.size !== undefined && parameters.size > 0
+            ? [
+                  Math.max(1, Math.round(W / parameters.size)),
+                  Math.max(1, Math.round(H / parameters.size)),
+              ]
+            : cmds_grid(W, H, N);
 
-            proximity_graph.forEach(({ source: i, target: j, delta }) => {
-                const pi = G[i];
-                const pj = G[j];
-                const wij = 1 / Math.pow(delta, 2);
-                const dist = distance(pi, pj);
-                nominator[i][0] += wij * (pj[0] + delta * ((pi[0] - pj[0]) / dist));
-                nominator[i][1] += wij * (pj[1] + delta * ((pi[1] - pj[1]) / dist));
-                denominator[i] += wij;
-            });
-
-            G = G.map((p, i) => {
-                const [gamma_px, gamma_py] = gamma(p, Gamma);
-                return [
-                    (nominator[i][0] + alpha * gamma_px) / (denominator[i] + alpha),
-                    (nominator[i][1] + alpha * gamma_py) / (denominator[i] + alpha),
-                ] as Point;
-            });
+    // §4.2: "the input nodes are uniformly scaled" so that the boundary term
+    // can actually be satisfied. Gamma is inset by half a node, so an input
+    // that already fills Gamma — which is what gridify hands over, since it
+    // uses the data's own bounding square — starts with its extreme points
+    // outside and can never get in. Scale the layout to fit the tightest inset
+    // (the one for the largest node size, i.e. the first attempt); later
+    // rescales only shrink nodes, which widens the inset.
+    const size0 = Math.min(W / m, H / n);
+    const source = (() => {
+        let min_x = Infinity, max_x = -Infinity, min_y = Infinity, max_y = -Infinity;
+        for (const [x, y] of D) {
+            if (x < min_x) min_x = x;
+            if (x > max_x) max_x = x;
+            if (y < min_y) min_y = y;
+            if (y > max_y) max_y = y;
         }
-        // reconstruct the proximity graph with the new layout
-        proximity_graph = create_proximity_graph(G, D, s, true);
+        const dw = max_x - min_x;
+        const dh = max_y - min_y;
+        const iw = Math.max(W - size0, 0);
+        const ih = Math.max(H - size0, 0);
+        const k = Math.min(dw > 0 ? iw / dw : Infinity, dh > 0 ? ih / dh : Infinity);
+        const scale = Number.isFinite(k) && k > 0 ? k : 1;
+        // Centre the scaled layout inside Gamma.
+        const cx = Gamma.x1 + W / 2 - ((min_x + max_x) / 2) * scale;
+        const cy = Gamma.y1 + H / 2 - ((min_y + max_y) / 2) * scale;
+        return D.map(([x, y]) => [x * scale + cx, y * scale + cy] as Point);
+    })();
 
-        yield [G, proximity_graph];
-    } while (--max_iter > 0 && !end_condition(proximity_graph, G, Gamma));
+    let G: Point[] = source.map(([x, y]) => [x, y] as Point);
+    let size = size0;
+    let proximity_graph = create_proximity_graph(G, source, size, false);
 
-    // round to grid
-    G = G.map((d) => d.map((v) => Math.round((v - s / 2) / s) * s + s / 2) as Point);
+    for (let rescale = 0; ; ++rescale) {
+        size = Math.min(W / m, H / n);
+        // Inset so a node whose centre is inside is drawn completely.
+        const inset: Region = {
+            x1: Gamma.x1 + size / 2,
+            x2: Gamma.x2 - size / 2,
+            y1: Gamma.y1 + size / 2,
+            y2: Gamma.y2 - size / 2,
+        };
 
-    proximity_graph = create_proximity_graph(G, D, s, true);
-    yield [G, proximity_graph];
+        proximity_graph = create_proximity_graph(G, source, size, false);
+        let converged = false;
+
+        for (let round = 0; round < max_iter; ++round) {
+            for (let it = 0; it < inner; ++it) {
+                // update step according to (4)
+                const nominator: Point[] = Array.from({ length: N }, () => [0, 0]);
+                const denominator: number[] = Array.from({ length: N }, () => 0);
+
+                proximity_graph.forEach(({ source: i, target: j, delta }) => {
+                    const pi = G[i];
+                    const pj = G[j];
+                    const wij = 1 / Math.pow(delta, 2);
+                    const dist = distance(pi, pj);
+                    nominator[i][0] += wij * (pj[0] + delta * ((pi[0] - pj[0]) / dist));
+                    nominator[i][1] += wij * (pj[1] + delta * ((pi[1] - pj[1]) / dist));
+                    denominator[i] += wij;
+                });
+
+                G = G.map((p, i) => {
+                    const [gamma_px, gamma_py] = gamma(p, inset);
+                    return [
+                        (nominator[i][0] + alpha * gamma_px) / (denominator[i] + alpha),
+                        (nominator[i][1] + alpha * gamma_py) / (denominator[i] + alpha),
+                    ] as Point;
+                });
+            }
+            // regenerate the graph, augmented with edges for overlapping nodes
+            proximity_graph = create_proximity_graph(G, source, size, true);
+
+            yield [G, proximity_graph, size];
+
+            if (end_condition(proximity_graph, G, inset, size)) {
+                converged = true;
+                break;
+            }
+        }
+
+        if (converged || rescale >= max_rescales) break;
+
+        // §4.2: still overlapping, so grow the grid by one row or column and
+        // rescale the nodes. Nodes are square with side min(W/m, H/n), so grow
+        // whichever dimension currently sets that minimum — growing the other
+        // one leaves the node size unchanged and the rescale achieves nothing.
+        if (W / m <= H / n) ++m;
+        else ++n;
+    }
+
+    // Grid alignment, (6).
+    G = G.map((d) => d.map((v) => Math.round((v - size / 2) / size) * size + size / 2) as Point);
+
+    proximity_graph = create_proximity_graph(G, source, size, true);
+    yield [G, proximity_graph, size];
 }

@@ -128,15 +128,28 @@ describe("cmds", () => {
     });
 
     it("snaps the final layout to a regular lattice", async () => {
-        const size = 8;
-        const { steps } = gridify(ring(30), "cmds", { size, max_iter: 3 });
+        // `size` is a starting point: cmds grows the grid and shrinks the nodes
+        // until the layout converges, so the final pitch comes back with the
+        // step rather than being the value passed in.
+        const { steps } = gridify(ring(30), "cmds", { size: 8, max_iter: 3 });
         let final: Point[] = [];
-        for await (const [G] of steps) final = G;
+        let pitch = 0;
+        for await (const [G, , size] of steps) {
+            final = G;
+            pitch = size;
+        }
+        expect(pitch).toBeGreaterThan(0);
 
         // Every coordinate must sit at a half-offset multiple of the pitch.
+        // Measure the distance to the nearest lattice index rather than using
+        // `% 1`, which reports ~1 for a value a hair below an integer.
+        const off = (v: number) => {
+            const k = (v - pitch / 2) / pitch;
+            return Math.abs(k - Math.round(k));
+        };
         for (const [x, y] of final) {
-            expect(((x - size / 2) / size) % 1).toBeCloseTo(0, 9);
-            expect(((y - size / 2) / size) % 1).toBeCloseTo(0, 9);
+            expect(off(x)).toBeCloseTo(0, 9);
+            expect(off(y)).toBeCloseTo(0, 9);
         }
     });
 });

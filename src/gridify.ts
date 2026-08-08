@@ -55,7 +55,7 @@ export interface GridifyParameters {
     cols?: number;
     /** `cmds`: boundary the layout is confined to. Defaults to the data's square bounds. */
     Gamma?: Region;
-    /** `cmds`: glyph size. Defaults to a size that packs the points into `Gamma`. */
+    /** `cmds`: starting node size. Defaults to a cell of the fitted grid, and shrinks if needed. */
     size?: number;
     /** `cmds`: weight of the boundary constraint. Defaults to `0.1`. */
     alpha?: number;
@@ -153,17 +153,12 @@ export function gridify(
                     const w = Math.max(wx, hy);
                     return { x1: min_x, x2: min_x + w, y1: min_y, y2: min_y + w };
                 })();
-            const size =
-                parameters.size ??
-                (() => {
-                    const { x1, x2, y1, y2 } = Gamma;
-                    const w = Math.max(x2 - x1, y2 - y1);
-                    return Math.sqrt(w ** 2 / (Math.sqrt(data.length) + 1) ** 2);
-                })();
+            // `size` is now optional: left out, cmds derives it from the m x n
+            // grid of the paper's §4.2 and shrinks it until the layout converges.
             return {
                 steps: gridify_cmds(data, {
                     Gamma,
-                    size,
+                    size: parameters.size,
                     alpha: parameters.alpha,
                     max_iter: parameters.max_iter,
                 }),

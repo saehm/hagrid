@@ -48,20 +48,25 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 | `gilbert` | generalized Hilbert curve on a grid matching the data's aspect ratio | `whitespace` (default `1`), or explicit `width` and `height` |
 | `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `orientation` (default `"flat"`) |
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
-| `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter` |
+| `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter`, `max_rescales` |
 | `nmap` | a space filling treemap approach | `BB`, `squared` |
 
 ### `cmds` is iterative
 
-`cmds` optimises over many steps rather than in one pass, so it returns a generator of intermediate layouts instead of a final position array. The last yielded layout is the grid-snapped result:
+`cmds` optimises over many steps rather than in one pass, so it returns a generator of intermediate
+layouts instead of a final position array. Each step also carries the node size in force, which
+changes as the grid grows. The last yielded layout is the grid-snapped result:
 
 ```js
-const { steps } = hagrid.gridify(data, "cmds", { max_iter: 50 });
-let positions;
-for await (const [layout, proximity_graph] of steps) {
-    positions = layout; // draw here to animate the optimisation
+const { steps } = hagrid.gridify(data, "cmds");
+let positions, pitch;
+for await (const [layout, proximity_graph, size] of steps) {
+    positions = layout;   // draw here to animate the optimisation
+    pitch = size;
 }
 ```
+
+`size` is a *starting* node size rather than a fixed one — see below.
 
 ## Migrating from 0.1.x
 
@@ -245,6 +250,35 @@ counts, scores, rounded measurements — commonly trips it. Jitter the input sli
 
 A real fix would fall back to a proportional split when a region is degenerate, placing tied points
 in adjacent cells. That is not done yet.
+
+## CMDS convergence
+
+`cmds` never terminated: it burned every iteration on every input and then threw. Beyond the arity
+bug (see *Migrating*), the update rule itself was already a faithful implementation of the paper's
+eq. (4), with its recommended `N = 20` inner iterations and `α = 0.1`. What was missing was
+everything §4.2 says about making that rule converge:
+
+- the **`m × n` grid** that determines the node size, rather than an ad-hoc `w / (√N + 1)`;
+- **`Γ` inset by half a node**, so a node whose centre is inside is drawn completely;
+- the input **uniformly scaled** into `Γ` — `gridify` sets `Γ` to the data's own bounding square, so
+  without this the extreme points start outside and can never get in;
+- **growing the grid** by a row or column and rescaling the nodes when a run does not converge.
+
+The termination test was also wrong: it summed the overlap over every edge and compared it to a
+constant `1`, which across ~570 edges demands an average overlap below `0.002`. The paper asks for
+"no overlap", which is per-pair.
+
+Without the rescale loop the layout oscillates forever. The overlap correction enters the ideal
+distance as `d_ij = l_ij + δ_ij`, so once a pair is separated `δ_ij` drops back to zero, the spring
+pulls them together, and the overlap returns — measured overlap alternated exactly `0 → 5.19 → 0`
+with period two.
+
+**This is improved rather than solved.** `cmds` now terminates and converges on most inputs, where
+before it converged on none. But it typically has to shrink the nodes to around 1% of the plot area,
+where the paper reports converged layouts at roughly 70%. Something in the implementation still
+differs from the paper, and `cmds` remains the least trustworthy method here — prefer `hilbert`,
+`gilbert` or `gosper`. When a run does not converge, the final grid snap can place two nodes in the
+same cell.
 
 ## Elongated data
 
