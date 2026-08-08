@@ -1,8 +1,16 @@
 import { Delaunay } from "d3-delaunay";
-import type { Point, Region } from "./types.js";
+import type { Bounds, Point } from "./types.js";
+
+/** A rectangle as opposing corners — the form the clamp and bound tests want. */
+interface Corners {
+    x1: number;
+    x2: number;
+    y1: number;
+    y2: number;
+}
 
 /** Clamps a point back inside the boundary `Gamma`. */
-function gamma([px, py]: Point, { x1, x2, y1, y2 }: Region): Point {
+function gamma([px, py]: Point, { x1, x2, y1, y2 }: Corners): Point {
     let [nx, ny] = [px, py];
     if (px < x1) nx = x1;
     else if (px > x2) nx = x2;
@@ -33,9 +41,8 @@ function compute_overlap([px, py]: Point, [qx, qy]: Point, s: number): number {
 }
 
 /**
- * Overlap below this fraction of a node counts as none. Used both to decide
- * which pairs get a separation edge and to decide when the layout is done;
- * the two must agree or a pair can sit permanently between them.
+ * Overlap below this fraction of a node counts as none. Used both to pick
+ * separation edges and to decide when the layout is done; the two must agree.
  */
 const OVERLAP_EPS = 1e-3;
 
@@ -89,13 +96,9 @@ function create_proximity_graph(
             add(i, j, compute_overlap(pa, A[j], s));
         }
         if (augment) {
-            // The paper uses naive O(n^2) collision detection here, which is
-            // fine at these sizes. What is not fine is materializing an edge
-            // object for all n^2 pairs and then filtering: that allocation
-            // dominated the run and is why so few rounds were affordable.
-            // The overlap threshold matches the end condition's exactly — an
-            // absolute 1e-2 meant that once nodes shrank below ~10 units a
-            // pair could sit permanently between the two and never be fixed.
+            // Naive O(n^2) collision detection, as the paper prescribes, but
+            // allocating only the edges it keeps. The threshold must match the
+            // end condition's, or a pair can sit permanently between the two.
             for (let j = 0; j < n; ++j) {
                 if (j === i || is_neighbour[j]) continue;
                 const overlap = compute_overlap(pa, A[j], s);
@@ -110,22 +113,17 @@ function create_proximity_graph(
 
 /**
  * Algorithm 1 terminates when "all data items are inside Γ with no overlap".
+ * Both halves are per-item, not aggregate.
  *
- * Both halves are per-item, not aggregate. The previous form summed the overlap
- * across every edge and compared it to a constant 1, which with ~570 edges
- * demanded an average overlap below 0.002 — far stricter than "no overlap" and
- * never satisfiable in practice.
- *
- * `Gamma` here is already inset by half a node (§4.2), so a centre inside it
- * means the whole node is displayed. The epsilon is numerical slack, not
- * tolerance for a real excursion: the update in (4) is a weighted average that
- * lands centres a few 1e-3 outside a 99-unit region, and an exact comparison
- * rejected layouts that had genuinely succeeded.
+ * `Gamma` is already inset by half a node (§4.2), so a centre inside it means
+ * the whole node is displayed. The epsilon absorbs the drift the weighted
+ * average in (4) leaves behind; an exact comparison rejects layouts that
+ * actually succeeded.
  */
 function end_condition(
     proximity_graph: readonly ProximityEdge[],
     G: readonly Point[],
-    { x1, x2, y1, y2 }: Region,
+    { x1, x2, y1, y2 }: Corners,
     size: number,
 ): boolean {
     // A thousandth of a node: visually nothing, but comfortably above the
@@ -157,8 +155,8 @@ export function cmds_grid(width: number, height: number, count: number): [number
 
 /** Parameters for {@link gridify_cmds}. */
 export interface CMDSParameters {
-    /** Boundary the layout is confined to. */
-    Gamma: Region;
+    /** Boundary the layout is confined to, as returned by `get_bounds`. */
+    Gamma: Bounds;
     /**
      * Starting node size, also the grid pitch the result is snapped to.
      *
@@ -174,20 +172,9 @@ export interface CMDSParameters {
     /**
      * Rounds of Algorithm 1 before the grid is grown. Defaults to `150`.
      *
-     * This is the quality/time dial. Overlaps fall slowly but steadily at a
-     * fixed node size — 538 down to 24 over 1830 rounds in one measurement —
-     * so the layout largely resolves itself when given the chance. Growing the
-     * grid early instead drove the nodes down to 2% of the plot area; more
-     * rounds keep them large:
-     *
-     * | rounds | packing |
-     * | ------ | ------- |
-     * | 10     | 2%      |
-     * | 200    | 33%     |
-     * | 800    | 71%     |
-     *
-     * 71% is what the paper reports, but the run cost is linear in this, so
-     * the default trades some of it for responsiveness.
+     * The quality/time dial: overlaps fall slowly but steadily at a fixed node
+     * size, so more rounds keep the nodes larger — roughly 2% of the plot area
+     * at 10 rounds, 33% at 200, 71% at 800. Cost is linear in it.
      */
     max_iter?: number;
     /** How many times the grid may grow before giving up. Defaults to `8`. */
@@ -204,28 +191,22 @@ export type CMDSStep = [Point[], ProximityEdge[], number];
  * Removes overlaps with constrained MDS (Liu, Hu, North & Shen, *Computer
  * Graphics Forum* 37(1), 2018), then snaps the result to a grid.
  *
- * Algorithm 1 alternates 20 stress-majorization updates of (4) with rebuilding
- * the Delaunay proximity graph, augmented with edges for overlapping pairs,
- * until every item is inside `Gamma` with no overlap.
+ * Alternates stress-majorization updates with rebuilding the Delaunay
+ * proximity graph, augmented with edges for overlapping pairs, until every
+ * item is inside `Gamma` with no overlap. If a run does not converge the grid
+ * grows by a row or column and the nodes shrink (§4.2).
  *
- * Convergence depends on the nodes being small enough relative to `Gamma`, so
- * §4.2 grows the `m × n` grid by one row or column and rescales the nodes
- * whenever a run does not converge. Without that the layout oscillates
- * indefinitely — the overlap correction is dropped as soon as it succeeds,
- * so the springs pull everything back together and the overlap returns.
- *
- * `Gamma` is inset by half a node, per §4.2, so a node whose centre is inside
- * it is fully displayed.
- *
- * Yields each intermediate layout, so callers can animate the optimisation.
- * The final yield is the grid-snapped result.
+ * Yields each intermediate layout, so callers can animate the optimisation;
+ * the last yield is the grid-snapped result. Note that a run which stops with
+ * overlaps left can snap two points into one cell, and that coincident input
+ * points produce non-finite output.
  *
  * @param D - Input points.
  */
-export async function* gridify_cmds(
+export function* gridify_cmds(
     D: readonly Point[],
     parameters: CMDSParameters,
-): AsyncGenerator<CMDSStep, void, undefined> {
+): Generator<CMDSStep, void, undefined> {
     const N = D.length;
     const Gamma = parameters.Gamma;
     const alpha = parameters.alpha ?? 0.1;
@@ -233,8 +214,8 @@ export async function* gridify_cmds(
     const max_iter = parameters.max_iter ?? 150;
     const max_rescales = parameters.max_rescales ?? 8;
 
-    const W = Gamma.x2 - Gamma.x1;
-    const H = Gamma.y2 - Gamma.y1;
+    const W = Gamma.width;
+    const H = Gamma.height;
 
     // §4.2: an m × n grid that fits Gamma and holds every item; a cell is the
     // node size. An explicit `size` just picks the starting grid instead.
@@ -246,13 +227,10 @@ export async function* gridify_cmds(
               ]
             : cmds_grid(W, H, N);
 
-    // §4.2: "the input nodes are uniformly scaled" so that the boundary term
-    // can actually be satisfied. Gamma is inset by half a node, so an input
-    // that already fills Gamma — which is what gridify hands over, since it
-    // uses the data's own bounding square — starts with its extreme points
-    // outside and can never get in. Scale the layout to fit the tightest inset
-    // (the one for the largest node size, i.e. the first attempt); later
-    // rescales only shrink nodes, which widens the inset.
+    // §4.2: the input is uniformly scaled to fit inside the inset Gamma, or
+    // its extreme points start outside it and the boundary term can never be
+    // satisfied. Fitting the tightest inset — the first, largest node size —
+    // suffices, since later rescales only shrink nodes and widen the inset.
     const size0 = Math.min(W / m, H / n);
     const source = (() => {
         let min_x = Infinity, max_x = -Infinity, min_y = Infinity, max_y = -Infinity;
@@ -269,8 +247,8 @@ export async function* gridify_cmds(
         const k = Math.min(dw > 0 ? iw / dw : Infinity, dh > 0 ? ih / dh : Infinity);
         const scale = Number.isFinite(k) && k > 0 ? k : 1;
         // Centre the scaled layout inside Gamma.
-        const cx = Gamma.x1 + W / 2 - ((min_x + max_x) / 2) * scale;
-        const cy = Gamma.y1 + H / 2 - ((min_y + max_y) / 2) * scale;
+        const cx = Gamma.x + W / 2 - ((min_x + max_x) / 2) * scale;
+        const cy = Gamma.y + H / 2 - ((min_y + max_y) / 2) * scale;
         return D.map(([x, y]) => [x * scale + cx, y * scale + cy] as Point);
     })();
 
@@ -281,11 +259,11 @@ export async function* gridify_cmds(
     for (let rescale = 0; ; ++rescale) {
         size = Math.min(W / m, H / n);
         // Inset so a node whose centre is inside is drawn completely.
-        const inset: Region = {
-            x1: Gamma.x1 + size / 2,
-            x2: Gamma.x2 - size / 2,
-            y1: Gamma.y1 + size / 2,
-            y2: Gamma.y2 - size / 2,
+        const inset: Corners = {
+            x1: Gamma.x + size / 2,
+            x2: Gamma.x + W - size / 2,
+            y1: Gamma.y + size / 2,
+            y2: Gamma.y + H - size / 2,
         };
 
         proximity_graph = create_proximity_graph(G, source, size, false);

@@ -1,5 +1,5 @@
 import { get_bounds } from "./utils.js";
-import type { Bounds, IndexedPoint, Point } from "./types.js";
+import type { Bounds, Point } from "./types.js";
 
 /**
  * A point that may be a synthetic filler added by {@link squared}, in which
@@ -9,7 +9,7 @@ import type { Bounds, IndexedPoint, Point } from "./types.js";
 type FillerPoint = [number, number, number | undefined] & { dist?: number };
 
 /** A rectangle in the subdivision, once assigned, carries its point. */
-type Region = Bounds & { d?: FillerPoint };
+type Tile = Bounds & { d?: FillerPoint };
 
 /** A 2×3 affine matrix, row-major, as `[[a, b, tx], [c, d, ty]]`. */
 type Affine = [[number, number, number], [number, number, number]];
@@ -20,13 +20,10 @@ type Affine = [[number, number, number], [number, number, number]];
  * The split boundary is the midpoint between the two halves along the split
  * axis. When every point in the region shares that coordinate the boundary
  * lands on the region's own edge, one side gets zero extent, and the affine
- * scale becomes `share / 0` — `NaN` if the share is zero too. That used to
- * propagate silently through every child region, so the layout came back full
- * of `null`s with no indication of why.
+ * scale becomes `share / 0`.
  *
- * Note this is not prevented by the points being distinct: four points on a
- * vertical line are all different yet share an `x`, and an integer lattice
- * trips it too.
+ * Distinct points are not enough to avoid this: four points on a vertical line
+ * all differ yet share an `x`, and an integer lattice trips it too.
  */
 function assert_splittable(axis: "x" | "y", a: number, b: number, count: number): void {
     // Only an exact zero is fatal. Extents are routinely negative here — the
@@ -46,7 +43,7 @@ function assert_splittable(axis: "x" | "y", a: number, b: number, count: number)
  * Recursively splits the region alongside the point set, alternating between
  * vertical and horizontal cuts, until each region holds a single point.
  */
-function nmap(G: Region[], P: FillerPoint[], R: Region, direction = true): void {
+function nmap(G: Tile[], P: FillerPoint[], R: Tile, direction = true): void {
     const N = P.length;
     const N_half = Math.floor(N / 2);
     if (N === 1) {
@@ -56,8 +53,8 @@ function nmap(G: Region[], P: FillerPoint[], R: Region, direction = true): void 
         const dim = direction ? 0 : 1;
         P = P.sort((a, b) => b[dim] - a[dim]);
         const [Da, Db] = split(P, N_half);
-        const Ra: Region = Object.assign({}, R);
-        const Rb: Region = Object.assign({}, R);
+        const Ra: Tile = Object.assign({}, R);
+        const Rb: Tile = Object.assign({}, R);
         if (direction) {
             const [wRa, wRb] = sizes(Da, Db, R.width);
             const bh = (Da[Da.length - 1][0] + Db[0][0]) / 2;
@@ -111,9 +108,9 @@ function affine_transform_points(
 }
 
 function affine_transform_rect(
-    { x, y, width, height }: Region,
+    { x, y, width, height }: Tile,
     [[scale_x, shear_x, translate_x], [scale_y, shear_y, translate_y]]: Affine,
-): Region {
+): Tile {
     const nx = x * scale_x + y * shear_x + translate_x;
     const ny = x * scale_y + y * shear_y + translate_y;
     const nwidth = (x + width) * scale_x + (y + height) * shear_x + translate_x - nx;
@@ -129,12 +126,9 @@ function split(P: FillerPoint[], pos: number): [FillerPoint[], FillerPoint[]] {
 /**
  * Divides `size` between the two halves in proportion to their point counts.
  *
- * The two shares must add back up to `size`, because the left half is pinned to
- * the region's left edge and the right half to its right edge. The original
- * returned `pA`'s share twice, so whenever the halves were uneven — every split
- * of an odd number of points — they summed to less than `size` and left a gap
- * down the middle that nothing ever filled. The outer extent looked fine, which
- * is why this went unnoticed; the interior did not tile.
+ * The two shares must add back up to `size`: the left half is pinned to the
+ * region's left edge and the right half to its right edge, so shares that fall
+ * short leave a gap down the middle that nothing fills.
  */
 function sizes(Da: FillerPoint[], Db: FillerPoint[], size: number): Point {
     const pA = Da.length;
@@ -216,10 +210,8 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
 
     while (sq_missing > 0 && extra.length > 0) {
         extra = calcDist(extra, D);
-        // Take the candidate sitting in the emptiest space, and take it *out*
-        // of the pool. Peeking at it instead — which is what this used to do —
-        // appended the same point `sq_missing` times, and a pile of identical
-        // points has no extent to subdivide, so the layout then failed.
+        // Take the candidate in the emptiest space, and take it *out* of the
+        // pool: peeking would append the same point every iteration.
         D.push(extra.pop() as FillerPoint);
         --sq_missing;
     }
@@ -231,13 +223,8 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
  * Ranks candidates in `A` by distance to the nearest point of `B`, farthest
  * last — so the tail of the list is the emptiest space.
  *
- * `dist` starts at `Infinity`. Leaving it `undefined`, as this used to, made
- * every `t_dist < a.dist` comparison false, so no distance was ever recorded
- * and the comparator returned `NaN` — the sort did nothing at all.
- *
- * The value carries across calls on purpose: `B` only ever grows, so the
- * nearest distance can only shrink, and keeping the running minimum is both
- * correct and cheaper than starting over.
+ * `dist` carries across calls on purpose: `B` only grows, so the nearest
+ * distance only shrinks, and the running minimum stays correct.
  */
 function calcDist(A: FillerPoint[], B: FillerPoint[]): FillerPoint[] {
     for (let i = 0; i < A.length; ++i) {
@@ -272,21 +259,18 @@ export interface NMapCell extends Bounds {
 }
 
 /**
- * The rectangles N-Map assigns, one per input point, in input order.
+ * The rectangles N-Map assigns, one per input point, in input order. They tile
+ * the region exactly. {@link gridify_nmap} reduces these to their centres.
  *
- * {@link gridify_nmap} reduces these to their centres; this exposes the cells
- * themselves, which is what you want to draw a treemap — and what makes the
- * tiling verifiable.
- *
- * Throws if any subdivision has no extent along the axis it is being cut on —
- * see {@link assert_splittable}. Distinct points are not enough to guarantee
- * this: collinear runs and integer lattices both trip it.
+ * @throws If any subdivision has no spread along the axis it is cut on.
+ *   Distinct points are not enough — collinear runs and integer lattices
+ *   both trip it.
  */
 export function nmap_regions(
     D: readonly Point[],
     parameters: NMapParameters = {},
 ): NMapCell[] {
-    const G: Region[] = [];
+    const G: Tile[] = [];
     const BB = region_for(D, parameters);
     let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
     if (parameters.squared === true) {
@@ -302,9 +286,9 @@ export function nmap_regions(
  * Removes overlaps with the space-filling N-Map treemap approach, recursively
  * subdividing the plotting area so each point owns a rectangle.
  *
- * Throws if any subdivision has no extent along the axis it is being cut on —
- * see {@link assert_splittable}. Distinct points are not enough to guarantee
- * this: collinear runs and integer lattices both trip it.
+ * @throws If any subdivision has no spread along the axis it is cut on.
+ *   Distinct points are not enough — collinear runs and integer lattices
+ *   both trip it.
  * * @param D - Input points.
  * @returns The centre of each point's rectangle, in input order.
  */
@@ -312,7 +296,7 @@ export function gridify_nmap(
     D: readonly Point[],
     parameters: NMapParameters = {},
 ): Point[] {
-    const G: Region[] = [];
+    const G: Tile[] = [];
     const BB = region_for(D, parameters);
     let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
     if (parameters.squared === true) {

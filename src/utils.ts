@@ -1,4 +1,4 @@
-import type { Accessor, Bounds, Point } from "./types.js";
+import type { Accessor, Bounds, Point, Range } from "./types.js";
 
 /** Computes the axis-aligned bounding box of `A`. */
 export function get_bounds(A: readonly Point[]): Bounds {
@@ -52,7 +52,7 @@ export interface ScaleOptions<T = Point> {
  */
 export function get_scales<T = Point>(
     data: readonly T[],
-    [[X_min, X_max], [Y_min, Y_max]]: [Point, Point],
+    [[X_min, X_max], [Y_min, Y_max]]: [Range, Range],
     {
         keep_aspect_ratio = false,
         round = true,
@@ -87,7 +87,7 @@ export function get_scales<T = Point>(
 }
 
 /** Returns `[min, max]` of `accessor` over `data`. */
-export function extent<T>(data: Iterable<T>, accessor: Accessor<T>): Point {
+export function extent<T>(data: Iterable<T>, accessor: Accessor<T>): Range {
     let min = Infinity;
     let max = -Infinity;
     for (const d of data) {

@@ -2,15 +2,11 @@ import { distance, get_scales } from "./utils.js";
 import type { Point } from "./types.js";
 
 /**
- * Largest curve level this implementation can index exactly.
- *
- * The index is a double, exact up to 2^53, and a level-`L` curve has `4^L`
- * cells. Beyond level 26 indices would start colliding silently, so they are
- * rejected instead.
+ * Largest level that can be indexed exactly. A level-`L` curve has `4^L`
+ * cells and the index is a double, so beyond 26 indices would collide.
  */
 export const HILBERT_MAX_LEVEL = 26;
 
-/** Hoisted so the guard costs a comparison, not a `Math.pow`, per call. */
 const HILBERT_MAX_SIZE = 2 ** HILBERT_MAX_LEVEL;
 
 function check_size(size: number): void {
@@ -28,13 +24,10 @@ function check_size(size: number): void {
 /**
  * Maps a grid cell to its position along the Hilbert curve.
  *
- * The quadrant reflection is written out inline rather than delegated to a
- * helper returning a tuple: allocating one array per level dominated
- * everything else and made this ~70x slower than it needed to be.
- *
  * @param point - Integer grid cell, both components in `[0, size)`.
  * @param size - Side length of the grid; must be a power of two.
  * @returns The curve index, in `[0, size²)`.
+ * @throws If `size` is not a power of two, or is above {@link HILBERT_MAX_LEVEL}.
  */
 export function hilbert_encode([px, py]: Point, size: number): number {
     check_size(size);
@@ -58,12 +51,8 @@ export function hilbert_encode([px, py]: Point, size: number): number {
 }
 
 /**
- * Maps a position along the Hilbert curve back to its grid cell — the inverse
- * of {@link hilbert_encode}.
- *
- * The index is kept in floating point rather than passed through `>>` and `&`,
- * which coerce to 32 bits: above level 15 that silently returned wrong
- * coordinates. Only the low bit is ever combined, and 0/1 operands are safe.
+ * Maps a curve index back to its grid cell — the inverse of
+ * {@link hilbert_encode}.
  *
  * @param n - Curve index, in `[0, size²)`.
  * @param size - Side length of the grid; must be a power of two.
@@ -114,9 +103,8 @@ function hilbert_collision(
         const er = !P.has(pr);
         const vl = valid(pl);
         const vr = valid(pr);
-        // Both probes have run off the ends, so every cell is taken. Without
-        // this the walk spins forever, which is what a level too small for
-        // the data used to produce.
+        // Both probes ran off the ends: every cell is taken. Without this
+        // the walk never terminates.
         if (!vl && !vr) {
             throw new Error(
                 "hilbert: more points than cells — raise the level (the grid has 4^level cells)",
@@ -154,11 +142,12 @@ export interface HilbertParameters {
 }
 
 /**
- * Removes overlaps by snapping each point to a cell of a Hilbert curve,
- * resolving contested cells along the curve. Produces a square grid.
+ * Removes overlaps by snapping each point to a Hilbert curve cell, resolving
+ * contested cells along the curve. The grid is square, `2^level` a side.
  *
  * @param D - Input points.
  * @returns One grid cell per input point, in input order.
+ * @throws If there are more points than cells.
  */
 export function gridify_hilbert(
     D: readonly Point[],

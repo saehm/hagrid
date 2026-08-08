@@ -12,24 +12,19 @@
  * assigned to the *equally sized* quadrants; only the cells they get are
  * adjusted.
  *
- * Partitioning and divider placement have to happen together, level by level.
- * The previous implementation built the whole quadtree against unshifted
- * extents and only then walked it shifting dividers, so every node's children
- * had been positioned against an extent their parent no longer had.
+ * Partitioning and divider placement happen together, level by level — doing
+ * them as separate passes leaves each node's children positioned against an
+ * extent their parent no longer has.
  */
 import type { Point } from "./types.js";
 
 /**
  * A region as `[x_min, x_max, y_min, y_max]`, in grid cells and **half-open**:
  * it covers `x_min <= x < x_max`, so it holds exactly
- * `(x_max - x_min) * (y_max - y_min)` cells.
- *
- * The convention has to be uniform. Originally `area()` counted
- * `x_max - x_min` cells while the point filter accepted `x_min <= x <= x_max`,
- * one column more — so every region was allocated one fewer cell than it took
- * points for. Harmless at the root, fatal a few levels down.
+ * `(x_max - x_min) * (y_max - y_min)` cells. Area and point containment must
+ * use the same convention or regions come up a cell short.
  */
-export type Extent = [number, number, number, number];
+type Extent = [number, number, number, number];
 
 /** `A(B)` of §3.2: how many grid cells a region holds. */
 function area(x_min: number, x_max: number, y_min: number, y_max: number): number {

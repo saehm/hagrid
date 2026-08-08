@@ -5,20 +5,15 @@
  *   "Hierarchical Hexagonal Clustering and Indexing",
  *   Symmetry 11(6):731, 2019. https://doi.org/10.3390/sym11060731
  *
- * A point's curve index is computed arithmetically in `O(level)`; the curve is
- * never materialized, so memory is constant in the level and a level of 12
- * (7^12 ≈ 1.4e10 cells) costs no more than a level of 3.
+ * Indices are computed arithmetically in `O(level)` and the curve is never
+ * materialized, so memory does not grow with the level.
  *
- * Encoding runs bottom-up (Algorithm 1) because Gosper islands are non-convex
- * fractal tiles whose jagged edges overstep their parent hexagon; a top-down
- * descent misassigns points near those edges. Hexagon centres always lie
- * inside their parent, so climbing the hierarchy is exact. The resulting
- * indices are then rewritten top-down into Node-Gosper order (Algorithm 2),
- * which is where pattern rotation and traversal order are resolved.
- *
- * This replaced an earlier implementation that built the whole curve as an
- * L-system and matched points against it. That one was ~110x slower end to
- * end, needed `O(7^level)` memory, and threw on collinear input.
+ * Encoding climbs the hexagon hierarchy bottom-up (Algorithm 1): Gosper
+ * islands are non-convex fractal tiles whose edges overstep their parent, so a
+ * top-down descent misassigns points near them, while hexagon centres always
+ * lie inside their parent. The indices are then rewritten top-down into
+ * Node-Gosper order (Algorithm 2), which resolves pattern rotation and
+ * traversal direction.
  */
 import type { HexOrientation, Point } from "./types.js";
 
@@ -49,31 +44,22 @@ const inscribed_circles = [
 ];
 
 /**
- * Lattice convention, paper eqs. (11) and (12).
+ * Lattice convention, paper eqs. (11) and (12). Hexagons are **flat-topped**:
+ * axial `(q, l)` sits at `x = 3/2·q·size`, `y = √3·(q/2 + l)·size`, and the
+ * inverse is `q = (2x/3)/size`, `l = (-x/3 + y·√3/3)/size`.
  *
- * Hexagons are laid out **flat-topped**: axial `(q, l)` sits at
- * `x = 3/2·q·size`, `y = √3·(q/2 + l)·size`, which puts axial `(1, 0)` at 30°.
- * The inverse is `q = (2x/3)/size`, `l = (-x/3 + y·√3/3)/size`.
+ * Both directions are inlined into encode and decode so they cannot drift out
+ * of agreement — pairing a flat-topped map with a pointy-topped inverse breaks
+ * every index above level 0.
  *
- * These two must agree. The original paired the flat-topped forward map with a
- * *pointy-topped* inverse, so the two disagreed about the lattice itself and
- * every index above level 0 came out wrong. Both directions are now inlined
- * into encode and decode, which is why there are no helpers here to drift
- * apart again.
- *
- * Cube coordinates add `y = -x - z` so the three axes sum to zero; rounding
- * restores that invariant by rebuilding whichever axis rounded least
- * confidently.
+ * Cube coordinates add `y = -x - z`; rounding restores that invariant by
+ * rebuilding whichever axis rounded least confidently.
  */
 
 /**
  * Classifies which of the six neighbouring hexagons a fractional cube offset
- * points at, or `0` when the offset is negligible. Paper eq. (16).
- *
- * The original inverted the sign test on all three axes and used a threshold
- * of `10e-3` where the paper specifies `1e-5`. It also fell off the end
- * returning `undefined` on a tie between two dominant axes, which propagated
- * `NaN` through the index; ties now resolve to the first dominant axis.
+ * points at, or `0` when the offset is negligible. Paper eq. (16); ties
+ * resolve to the first dominant axis.
  */
 function B(xd: number, yd: number, zd: number, thd = 1e-5): number {
     const ax = Math.abs(xd);
@@ -126,11 +112,8 @@ const COS_30 = Math.cos(Math.PI / 6);
 const SIN_30 = Math.sin(Math.PI / 6);
 
 /**
- * Scratch buffer for the per-level digits.
- *
- * Both encode and decode need every digit before they can use any of them, but
- * allocating an array per call dominated the arithmetic. Neither function
- * yields, recurses or calls out, so a single shared buffer is safe.
+ * Shared scratch buffer for the per-level digits. Safe because neither encode
+ * nor decode yields, recurses or calls out while holding it.
  */
 let digit_scratch = new Int8Array(32);
 function digits(level: number): Int8Array {
@@ -139,10 +122,9 @@ function digits(level: number): Int8Array {
 }
 
 /**
- * This construction is natively flat-topped, because {@link cube2xy} sends
- * axial `(1, 0)` to 30°. The pointy-topped lattice is the same lattice turned
- * by -30°, so a point is rotated into the native frame on the way in and the
- * cell is rotated back out again. Rotation leaves the index ordering alone.
+ * The lattice here is natively flat-topped; pointy-topped is the same lattice
+ * turned by -30°, so points rotate into the native frame on the way in and
+ * cells rotate back on the way out.
  */
 function to_native(p: Point, orientation: HexOrientation): Point {
     if (orientation === "flat") return p;
@@ -157,11 +139,8 @@ function from_native(p: Point, orientation: HexOrientation): Point {
 /**
  * Maps a point to its position along the Gosper curve.
  *
- * Returns `-1` when the point lies outside the level-`level` Gosper island.
- * The climb only ever records a hexagon's position *relative* to its parent,
- * so without this check an outside point aliases onto an arbitrary interior
- * cell — frequently one at the far end of the curve — rather than being
- * rejected. A contained point always lands on the root hexagon `(0, 0)`.
+ * The island is centred on the origin, so translate your data there first.
+ * Points outside it return `-1` rather than aliasing onto an interior cell.
  *
  * @param point - The point to index.
  * @param level - Curve level; the curve has `7^level` cells.
@@ -182,15 +161,8 @@ export function gosper_encode(
         yp = SIN_30 * xp + COS_30 * yp;
         xp = rx;
     }
-    // Algorithm 1: bottom-up hierarchical localization. Mapping must go
-    // bottom-up because Gosper islands are non-convex fractal tiles whose
-    // jagged edges overstep their parent hexagon — a top-down descent
-    // misassigns points near those edges. Hexagon *centres*, by contrast,
-    // always lie inside the parent hexagon, so climbing is exact.
-    //
-    // The original walked xy space applying cumulative `REC_SQRT7^i` scales
-    // and `-ALPHA*i` rotations. The paper instead applies one constant matrix
-    // to axial coordinates, repeatedly.
+    // Algorithm 1: climb the hierarchy by applying the constant matrix T to
+    // axial coordinates, one level at a time.
     const b = digits(level);
 
     // xy2cube, eq. (12), inlined.
@@ -224,15 +196,12 @@ export function gosper_encode(
         b[level - i] = B(nq - q, vy - Math.round(vy), nl - l);
     }
 
-    // The climb ends on the root hexagon for any point the island contains.
-    // Anything else started in a neighbouring island, and the digits collected
-    // above describe a cell of *that* tile — which, folded back into this one,
-    // lands somewhere unrelated. Report no containing cell instead.
+    // A contained point always ends on the root hexagon. Anything else started
+    // in a neighbouring island, and its digits describe a cell of *that* tile.
     if (q !== 0 || l !== 0) return -1;
 
-    // Algorithm 2. Rewrite the raw hexagon sequence into Gosper node order,
-    // tracking the rotation and traversal direction each node imposes on its
-    // children.
+    // Algorithm 2: rewrite into Gosper node order, tracking the rotation and
+    // traversal direction each node imposes on its children.
     let rotDir = 0;
     let order = true;
     const k: number[] = new Array(level).fill(0);
@@ -345,12 +314,11 @@ function collision(
         const er = !P.has(pr);
         const vl = valid(pl);
         const vr = valid(pr);
-        // Both probes have run off the ends, so every cell is taken. Without
-        // this the walk spins forever, which is what a level too small for
-        // the data used to produce.
+        // Both probes ran off the ends: every cell is taken. Without this
+        // the walk never terminates.
         if (!vl && !vr) {
             throw new Error(
-                "gosper_uher: more points than cells — raise the level (the curve has 7^level cells)",
+                "gosper: more points than cells — raise the level (the curve has 7^level cells)",
             );
         }
         if (vl && el && !er) {
@@ -379,9 +347,8 @@ function collision(
 /**
  * Every cell centre of the Gosper curve at `level`, in curve order.
  *
- * Useful for drawing the grid. Nothing else needs it — indexing goes straight
- * through {@link gosper_encode} — so this is the only place the curve is ever
- * materialized, and the caller decides when to pay for it.
+ * Only useful for drawing the grid; indexing goes through
+ * {@link gosper_encode} and never materializes the curve.
  *
  * @param level - Curve level; the curve has `7^level` cells.
  * @param orientation - Which way up the hexagons sit. Defaults to `"flat"`.
@@ -407,15 +374,13 @@ export interface GosperParameters {
 }
 
 /**
- * Removes overlaps using the direct Gosper indexing of Uher et al.
- *
- * Produces a hexagonal grid like {@link gridify_gosper}, but without building
- * the curve, so it stays fast as the level grows. Cell coordinates are in the
- * paper's own frame and differ in scale and orientation from
- * {@link gridify_gosper}'s.
+ * Removes overlaps by snapping each point to a Gosper curve cell, resolving
+ * contested cells along the curve. Produces a hexagonal grid of `7^level`
+ * cells, returned in the input's own coordinate range.
  *
  * @param D - Input points.
  * @returns One cell centre per input point, in input order.
+ * @throws If there are more points than cells.
  */
 export function gridify_gosper(
     D: readonly Point[],
@@ -426,11 +391,9 @@ export function gridify_gosper(
     const P = new Map<number, number>();
     const Y: Point[] = new Array(N).fill(0);
 
-    // The island is centred on the origin, so the data has to be moved there
-    // before indexing. Without this the points sit off the tile entirely and
-    // over half of them alias onto unrelated cells. `gosper_size` scales
-    // the island so the data's bounding circle lands inside its inscribed
-    // circle, which only holds about a shared centre.
+    // The island is centred on the origin, so the data must be moved there
+    // first: `gosper_size` fits the data's bounding circle inside the island's
+    // inscribed circle, which only holds about a shared centre.
     let min_x = Infinity;
     let max_x = -Infinity;
     let min_y = Infinity;
@@ -445,11 +408,8 @@ export function gridify_gosper(
     const mid_y = (min_y + max_y) / 2;
 
     D.forEach((d, i) => {
-        // Note: no rounding. The original quantized inputs to integers here,
-        // which collapsed distinct points on any small-scale dataset.
-        // Everything below stays in the native (flat) frame; the requested
-        // orientation is applied once on the way in and once on the way out,
-        // so collision resolution never has to know about it.
+        // Work in the native frame throughout: orientation is applied once on
+        // the way in and once out, so collision resolution ignores it.
         const centred = to_native([d[0] - mid_x, d[1] - mid_y], orientation);
         const p = gosper_encode(centred, level, size);
         if (p < 0) {

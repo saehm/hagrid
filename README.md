@@ -61,10 +61,23 @@ changes as the grid grows. The last yielded layout is the grid-snapped result:
 ```js
 const { steps } = hagrid.gridify(data, "cmds");
 let positions, pitch;
-for await (const [layout, proximity_graph, size] of steps) {
+for (const [layout, proximity_graph, size] of steps) {
     positions = layout;   // draw here to animate the optimisation
     pitch = size;
 }
+```
+
+The generator is synchronous, so pulling every step runs the whole optimisation in one blocking
+loop. To animate without freezing the page, drive it a step at a time:
+
+```js
+const step = () => {
+    const { value, done } = steps.next();
+    if (done) return;
+    draw(value[0], value[2]);
+    requestAnimationFrame(step);
+};
+step();
 ```
 
 `size` is a *starting* node size rather than a fixed one — see below.
@@ -74,7 +87,7 @@ for await (const [layout, proximity_graph, size] of steps) {
 `0.3.0` is the first release since the library was ported to TypeScript. The layouts produced by `hilbert`, `dgrid` and `nmap` are unchanged — they are pinned by fixtures captured from `0.1.1` — but the surrounding API changed:
 
 - **`gridify` returns `{ positions, runtime }`** instead of an array with a `runtime` property bolted on. Replace `const result = gridify(...)` with `const { positions } = gridify(...)`.
-- **`gridify(data, "cmds", …)` returns `{ steps }`**, an async generator. Previously it returned a generator that could not complete: the final proximity graph was constructed with the wrong arity, so the grid-snapped layout always threw before reaching the caller.
+- **`gridify(data, "cmds", …)` returns `{ steps }`**, a generator. Previously it returned a generator that could not complete: the final proximity graph was constructed with the wrong arity, so the grid-snapped layout always threw before reaching the caller.
 - **`gridify(data, "gosper", …)` works without an explicit `pluslevel`.** It previously read an absent `pluslevel` and computed a `NaN` curve level.
 - **There is now one Gosper implementation.** `gosper.js` and `gosper2.js` both exported `gosper_encode`, `gosper_decode` and `gridify_gosper`, and which one you got depended on whether you called the export directly or went through `gridify`. The curve-building one has been removed in favour of the direct indexing of Uher et al., which keeps the plain names — `gosper_encode`, `gosper_decode`, `gosper_size`, `gosper_curve`, `gridify_gosper`. Layouts differ from `0.1.x`. `scale_factor` is gone (the fit is isotropic now); `orientation` replaces it. `gosper_encode` returns `-1` outside the island, and `CurveIndex` is gone with the scan it existed to accelerate.
 - **`gridify_gridfit` returns `Point[]`** like every other method, and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
@@ -82,6 +95,7 @@ for await (const [layout, proximity_graph, size] of steps) {
 - **`nmap`'s `squared` option works.** It threw whenever filler points were actually needed, and did nothing when they were not.
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
+- **`cmds`'s `Gamma` is a `Bounds`** — `{x, y, width, height}` — rather than the corner form `{x1, x2, y1, y2}`. The `Region` type is gone; `get_bounds(data)` can now be passed straight in.
 
 ## Licence
 

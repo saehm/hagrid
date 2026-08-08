@@ -33,10 +33,7 @@
  *   ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  *   POSSIBILITY OF SUCH DAMAGE.
  *
- * The published version is a generator that enumerates the whole curve, which
- * is `O(W·H)` and no use as an index. The two functions here descend only into
- * the sub-rectangle containing the query, adding or subtracting the areas they
- * skip, which is `O(log(max(W, H)))` — the same shape of cost as
+ * Indexing is `O(log(max(W, H)))` — the same shape of cost as
  * {@link hilbert_encode}, with a larger constant.
  */
 import { get_bounds } from "./utils.js";
@@ -66,12 +63,10 @@ function inside(
 }
 
 /**
- * Maps a cell of a `W × H` grid to its position along the generalized Hilbert
- * curve.
+ * Maps a cell of a `W × H` grid to its position along the curve.
  *
- * Unlike {@link hilbert_encode} the grid need not be square, nor a power of
- * two, so an elongated dataset can be gridded at its own aspect ratio instead
- * of being padded into a square.
+ * Unlike {@link hilbert_encode} the grid need not be square nor a power of
+ * two, so elongated data can be gridded at its own aspect ratio.
  *
  * @param px - Column, in `[0, W)`.
  * @param py - Row, in `[0, H)`.
@@ -224,19 +219,14 @@ export interface GilbertParameters {
 }
 
 /**
- * Picks a `width × height` grid holding at least `n` cells whose shape is as
- * close as possible to `aspect`, so an elongated dataset is not forced into a
- * square.
+ * Picks a `width × height` grid of at least `n` cells whose shape is as close
+ * as possible to `aspect`.
  *
  * Both dimensions are integers, so only certain shapes exist at a given cell
- * count — and the closest one is not always the one nearest `sqrt(n / aspect)`.
- * Committing to `round(sqrt(n / aspect))` picked `25 x 4` for 100 cells at
- * aspect 5 (25% too wide) when `20 x 5` was available at 20% too narrow, and
- * `300 x 2` for 600 cells at aspect 100 — 50% out. Searching the few heights
- * either side of the ideal costs nothing and picks the better shape.
- *
- * Error is scored on the log ratio so that twice too wide and twice too tall
- * count equally, with a light penalty for overshooting the requested count.
+ * count and the best one is not always nearest `sqrt(n / aspect)`. A few
+ * heights either side of the ideal are tried, scored on the log ratio so that
+ * twice too wide and twice too tall count equally, with a light penalty for
+ * overshooting `n`.
  */
 export function gilbert_dimensions(n: number, aspect: number): [number, number] {
     const a = Number.isFinite(aspect) && aspect > 0 ? aspect : 1;
@@ -261,17 +251,13 @@ export function gilbert_dimensions(n: number, aspect: number): [number, number] 
 }
 
 /**
- * Nudges a grid off the one shape family whose curve is discontinuous.
+ * Nudges a grid off the one shape family whose curve is discontinuous:
+ * an even short side with an odd long side. Growing the long side by one
+ * escapes it and never removes cells.
  *
- * Exhaustive search to 48x48 finds that consecutive indices are always
- * orthogonally adjacent *except* when the short side is even and the long side
- * odd — 506 shapes, and no failure outside that class. Growing the long side by
- * one escapes it, which costs a single row or column and never removes cells.
- *
- * A jump does not break correctness — the mapping stays a bijection and every
- * point still gets its own cell — but the curve's whole value is that
- * neighbours along it are neighbours in the plane, and collision resolution
- * walks it assuming exactly that.
+ * A discontinuity does not break correctness — the mapping stays a bijection —
+ * but consecutive indices stop being neighbours in the plane, which is the
+ * property collision resolution relies on.
  */
 function continuous(width: number, height: number): [number, number] {
     const short = Math.min(width, height);
@@ -284,14 +270,12 @@ function continuous(width: number, height: number): [number, number] {
 
 /**
  * Removes overlaps by snapping points onto a generalized Hilbert curve whose
- * grid matches the data's aspect ratio.
- *
- * `hilbert` must pad its grid to a square, which for a wide dataset wastes most
- * of the cells and stretches the curve across empty space. This keeps the grid
- * proportional instead.
+ * grid matches the data's aspect ratio, rather than padding to a square as
+ * `hilbert` must.
  *
  * @param D - Input points.
  * @returns One `[column, row]` cell per input point, in input order.
+ * @throws If the grid has fewer cells than there are points.
  */
 export function gridify_gilbert(
     D: readonly Point[],

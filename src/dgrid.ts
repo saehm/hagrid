@@ -48,13 +48,14 @@ function split(
     return [sorted.slice(0, pos), sorted.slice(pos)];
 }
 
-/**
- * Parameters for {@link gridify_dgrid}. Supply either an explicit `rows` and
- * `cols`, or an `aspect_ratio` from which both are derived.
- */
-export type DGridParameters =
-    | { rows: number; cols: number; aspect_ratio?: number }
-    | { aspect_ratio: number; rows?: undefined; cols?: undefined };
+/** Parameters for {@link gridify_dgrid}. */
+export interface DGridParameters {
+    /** Cell aspect ratio, used to derive the grid. Defaults to `1`. */
+    aspect_ratio?: number;
+    /** Explicit grid size. Both must be given, and together they override `aspect_ratio`. */
+    rows?: number;
+    cols?: number;
+}
 
 /**
  * Removes overlaps by recursively bisecting the data into a dense grid, in the
@@ -66,25 +67,19 @@ export type DGridParameters =
  */
 export function gridify_dgrid(
     D: readonly Point[],
-    parameters: DGridParameters,
+    parameters: DGridParameters = {},
 ): Point[] {
     const N = D.length;
+    const { rows: given_rows, cols: given_cols, aspect_ratio = 1 } = parameters;
+
     let rows: number;
     let cols: number;
-    if (
-        parameters != null &&
-        "rows" in parameters &&
-        "cols" in parameters &&
-        parameters.rows !== undefined &&
-        parameters.cols !== undefined
-    ) {
-        rows = parameters.rows;
-        cols = parameters.cols;
-    } else if (parameters != null && "aspect_ratio" in parameters) {
-        rows = Math.floor(Math.sqrt(N * (parameters.aspect_ratio as number)));
-        cols = Math.ceil(N / rows);
+    if (given_rows !== undefined && given_cols !== undefined) {
+        rows = given_rows;
+        cols = given_cols;
     } else {
-        throw new Error("gridify_dgrid: expected either {rows, cols} or {aspect_ratio}");
+        rows = Math.max(1, Math.floor(Math.sqrt(N * aspect_ratio)));
+        cols = Math.ceil(N / rows);
     }
     const G: Cell[] = [];
     const added_index: IndexedPoint[] = D.map(([x, y], i) => [x, y, i]);

@@ -1,12 +1,11 @@
 /** A 2D point, as `[x, y]`. */
 export type Point = [number, number];
 
-/**
- * A 2D point carrying its index in the original input, as `[x, y, i]`.
- * Several methods reorder points internally and use the trailing index to
- * restore the caller's ordering before returning.
- */
+/** A point carrying its index in the input, as `[x, y, i]`. */
 export type IndexedPoint = [number, number, number];
+
+/** An inclusive `[min, max]` interval along one axis. */
+export type Range = [number, number];
 
 /** An axis-aligned bounding box. */
 export interface Bounds {
@@ -16,23 +15,12 @@ export interface Bounds {
     height: number;
 }
 
-/** A rectangular region given by opposing corners, used to bound `cmds`. */
-export interface Region {
-    x1: number;
-    x2: number;
-    y1: number;
-    y2: number;
-}
-
 /** Maps a datum to a scalar, used to read out one dimension of a point. */
 export type Accessor<T = Point> = (d: T) => number;
 
 /**
- * Which way up the hexagons sit.
- *
- * `"pointy"` puts a vertex at the top and neighbours at multiples of 60°;
- * `"flat"` puts an edge at the top and neighbours at 30° off those. The two
- * lattices are the same lattice turned by 30°, so switching rotates the whole
- * grid and leaves the curve's cell ordering identical.
+ * Which way up the hexagons sit: `"pointy"` has a vertex at the top,
+ * `"flat"` an edge. The two are the same lattice turned by 30°, so switching
+ * rotates the grid and leaves the cell ordering unchanged.
  */
 export type HexOrientation = "pointy" | "flat";

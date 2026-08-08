@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 import { cmds_grid, gridify_cmds } from "../src/cmds.js";
 import { gridify } from "../src/gridify.js";
 import { get_bounds } from "../src/utils.js";
-import type { Point, Region } from "../src/types.js";
+import type { Bounds, Point } from "../src/types.js";
 
 function rng(seed: number) {
     return () => {
@@ -127,7 +127,7 @@ describe("cmds keeps its layout inside Gamma", () => {
         const data = uniform(40, 21);
         const bb = get_bounds(data);
         const w = Math.max(bb.width, bb.height);
-        const Gamma: Region = { x1: bb.x, x2: bb.x + w, y1: bb.y, y2: bb.y + w };
+        const Gamma: Bounds = { x: bb.x, y: bb.y, width: w, height: w };
 
         // gridify_cmds is the generator itself, not a { steps } wrapper.
         const steps = gridify_cmds(data, { Gamma, max_iter: 4, max_rescales: 30 });
@@ -140,10 +140,10 @@ describe("cmds keeps its layout inside Gamma", () => {
         // Gamma is inset by half a node, so the glyph must sit inside Gamma
         // itself. Allow one pitch of slack for the final grid snap.
         for (const [x, y] of layout) {
-            expect(x).toBeGreaterThanOrEqual(Gamma.x1 - size);
-            expect(x).toBeLessThanOrEqual(Gamma.x2 + size);
-            expect(y).toBeGreaterThanOrEqual(Gamma.y1 - size);
-            expect(y).toBeLessThanOrEqual(Gamma.y2 + size);
+            expect(x).toBeGreaterThanOrEqual(Gamma.x - size);
+            expect(x).toBeLessThanOrEqual(Gamma.x + Gamma.width + size);
+            expect(y).toBeGreaterThanOrEqual(Gamma.y - size);
+            expect(y).toBeLessThanOrEqual(Gamma.y + Gamma.height + size);
         }
     });
 });

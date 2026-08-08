@@ -6,7 +6,7 @@ import { gridify_gosper } from "./gosper.js";
 import { gridify_dgrid } from "./dgrid.js";
 import { gridify_nmap } from "./nmap.js";
 import { gridify_cmds, type CMDSStep } from "./cmds.js";
-import type { Point, Region } from "./types.js";
+import type { Bounds, HexOrientation, Point } from "./types.js";
 
 /** Overlap-removal methods reachable through {@link gridify}. */
 export type GridifyMethod =
@@ -34,7 +34,7 @@ export interface GridifyResult {
  */
 export interface GridifyStepsResult {
     /** Successive layouts; the last one is the grid-snapped result. */
-    steps: AsyncGenerator<CMDSStep, void, undefined>;
+    steps: Generator<CMDSStep, void, undefined>;
 }
 
 /** Parameters accepted by {@link gridify}, by method. */
@@ -49,14 +49,14 @@ export interface GridifyParameters {
     /** `hilbert`: preserves the data's aspect ratio. */
     keep_aspect_ratio?: boolean;
     /** `gosper`: which way up the hexagons sit. Defaults to `"flat"`. */
-    orientation?: import("./types.js").HexOrientation;
+    orientation?: HexOrientation;
     /** `dgrid`: cell aspect ratio. Defaults to `1`. */
     aspect_ratio?: number;
     /** `dgrid`: explicit grid dimensions, overriding `aspect_ratio`. */
     rows?: number;
     cols?: number;
     /** `cmds`: boundary the layout is confined to. Defaults to the data's square bounds. */
-    Gamma?: Region;
+    Gamma?: Bounds;
     /** `cmds`: starting node size. Defaults to a cell of the fitted grid, and shrinks if needed. */
     size?: number;
     /** `cmds`: weight of the boundary constraint. Defaults to `0.1`. */
@@ -68,7 +68,7 @@ export interface GridifyParameters {
     /** `cmds`: inner iterations per round, `N` in Algorithm 1. Defaults to `20`. */
     inner_iterations?: number;
     /** `nmap`: region to fill. Defaults to the data's bounding box. */
-    BB?: import("./types.js").Bounds | null;
+    BB?: Bounds | null;
     /** `nmap`: pads the input so it fills a square grid. */
     squared?: boolean;
 }
@@ -136,15 +136,11 @@ export function gridify(
                 }),
             );
         case "gosper": {
-            // Defaulted like hilbert's; previously this read an absent
-            // `pluslevel` and produced a NaN level.
             const pluslevel = parameters.pluslevel ?? 0;
             const whitespace = parameters.whitespace ?? 1;
             // A level-L curve has 7^L cells, so log7 of the point count is the
-            // smallest level that fits. The old formula added 1 on top of that,
-            // which multiplied the cell count by seven — 28x more cells than
-            // points at N = 600, against hilbert's 1.7x. Use `whitespace` (or
-            // `pluslevel`) to ask for slack deliberately.
+            // smallest level that fits. Each extra level costs 7x the cells,
+            // so ask for slack with `whitespace` rather than `pluslevel`.
             const level =
                 Math.ceil(Math.log2(data.length * whitespace) / Math.log2(7)) + pluslevel;
             return timed(() =>
@@ -155,23 +151,24 @@ export function gridify(
             // Expects grid-cell units; the region grows until it has at least
             // one cell per point.
             return timed(() => gridify_gridfit(data));
-        case "dgrid": {
-            const p =
-                parameters.rows !== undefined && parameters.cols !== undefined
-                    ? { rows: parameters.rows, cols: parameters.cols }
-                    : { aspect_ratio: parameters.aspect_ratio ?? 1 };
-            return timed(() => gridify_dgrid(data, p));
-        }
+        case "dgrid":
+            return timed(() =>
+                gridify_dgrid(data, {
+                    rows: parameters.rows,
+                    cols: parameters.cols,
+                    aspect_ratio: parameters.aspect_ratio,
+                }),
+            );
         case "cmds": {
             const Gamma =
                 parameters.Gamma ??
                 (() => {
-                    const { x: min_x, y: min_y, width: wx, height: hy } = get_bounds(data);
-                    const w = Math.max(wx, hy);
-                    return { x1: min_x, x2: min_x + w, y1: min_y, y2: min_y + w };
+                    const { x, y, width, height } = get_bounds(data);
+                    const w = Math.max(width, height);
+                    return { x, y, width: w, height: w };
                 })();
-            // `size` is now optional: left out, cmds derives it from the m x n
-            // grid of the paper's §4.2 and shrinks it until the layout converges.
+            // Left out, `size` is derived from the m x n grid of §4.2 and
+            // shrunk until the layout converges.
             return {
                 steps: gridify_cmds(data, {
                     Gamma,
