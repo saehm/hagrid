@@ -159,15 +159,13 @@ describe("gridfit", () => {
         // v0.1.x referenced an unimported `d3`, so this threw a ReferenceError
         // before doing any work.
         const data: Point[] = ring(40).map(([x, y]) => [Math.round(x), Math.round(y)]);
-        const result = gridify_gridfit(data);
-        expect(result.nodes.length).toBeGreaterThan(0);
-        expect(result.final.length + result.leftovers.length).toBeGreaterThan(0);
+        expect(gridify_gridfit(data)).toHaveLength(data.length);
     });
 
     it("never places two points in the same cell", () => {
         const data: Point[] = ring(64, 2).map(([x, y]) => [Math.round(x), Math.round(y)]);
-        const { final } = gridify_gridfit(data);
-        const cells = final.map(({ cell }) => cell.join(","));
+        const cells = gridify_gridfit(data).map((c) => c.join(","));
         expect(new Set(cells).size).toBe(cells.length);
     });
 });
+

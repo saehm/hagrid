@@ -1,6 +1,7 @@
 import { get_bounds, remap } from "./utils.js";
 import { gridify_hilbert } from "./hilbert.js";
 import { gridify_gilbert } from "./gilbert.js";
+import { gridify_gridfit } from "./gridfit.js";
 import { gridify_gosper } from "./gosper.js";
 import { gridify_dgrid } from "./dgrid.js";
 import { gridify_nmap } from "./nmap.js";
@@ -12,6 +13,7 @@ export type GridifyMethod =
     | "hilbert"
     | "gilbert"
     | "gosper"
+    | "gridfit"
     | "dgrid"
     | "cmds"
     | "nmap";
@@ -138,6 +140,10 @@ export function gridify(
                 gridify_gosper(data, { level, orientation: parameters.orientation }),
             );
         }
+        case "gridfit":
+            // Expects grid-cell units; the region grows until it has at least
+            // one cell per point.
+            return timed(() => gridify_gridfit(data));
         case "dgrid": {
             const p =
                 parameters.rows !== undefined && parameters.cols !== undefined

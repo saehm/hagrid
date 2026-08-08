@@ -1,227 +1,237 @@
+/**
+ * Gridfit, after
+ *
+ *   Keim & Herrmann, "The Gridfit Algorithm: An Efficient and Effective
+ *   Approach to Visualizing Large Amounts of Spatial Data",
+ *   IEEE Visualization '98.
+ *
+ * The data space is partitioned hierarchically. At each level a node is cut
+ * into four subregions, and the dividing lines are shifted off centre by the
+ * smallest integer amount that gives every subregion at least as many grid
+ * cells as it has points — the invariant `P(B) <= A(B)` of §3.2. Points are
+ * assigned to the *equally sized* quadrants; only the cells they get are
+ * adjusted.
+ *
+ * Partitioning and divider placement have to happen together, level by level.
+ * The previous implementation built the whole quadtree against unshifted
+ * extents and only then walked it shifting dividers, so every node's children
+ * had been positioned against an extent their parent no longer had.
+ */
 import type { Point } from "./types.js";
 
 /**
- * A region of the plane as `[x_min, x_max, y_min, y_max]`, measured in grid
- * cells rather than data units.
+ * A region as `[x_min, x_max, y_min, y_max]`, in grid cells and **half-open**:
+ * it covers `x_min <= x < x_max`, so it holds exactly
+ * `(x_max - x_min) * (y_max - y_min)` cells.
+ *
+ * The convention has to be uniform. Originally `area()` counted
+ * `x_max - x_min` cells while the point filter accepted `x_min <= x <= x_max`,
+ * one column more — so every region was allocated one fewer cell than it took
+ * points for. Harmless at the root, fatal a few levels down.
  */
 export type Extent = [number, number, number, number];
 
-/** A node of the quadtree: the indices it contains and the region it covers. */
-export interface QuadNode {
-    indices: number[];
-    E: Extent;
-    children?: QuadNode[];
-    parent?: QuadNode;
+/** `A(B)` of §3.2: how many grid cells a region holds. */
+function area(x_min: number, x_max: number, y_min: number, y_max: number): number {
+    return Math.max(0, x_max - x_min) * Math.max(0, y_max - y_min);
 }
 
-/** A point placed at a concrete grid cell. */
-export interface Placement {
-    /** Index into the original input. */
-    i: number;
-    /** Assigned cell. */
-    cell: Point;
+/**
+ * The smallest shift of a dividing line that satisfies `fits`, searched
+ * outward from the centre — `min{x ∈ ℤ | ...}` of §3.2.
+ *
+ * Both directions are tried, nearest first, so the line moves as little as
+ * possible. Returns `null` if no position in `[lo, hi]` works.
+ */
+function shift(centre: number, lo: number, hi: number, fits: (m: number) => boolean): number | null {
+    if (lo > hi) return null;
+    const start = Math.min(Math.max(centre, lo), hi);
+    if (fits(start)) return start;
+    const reach = Math.max(start - lo, hi - start);
+    for (let d = 1; d <= reach; ++d) {
+        const up = start + d;
+        if (up <= hi && fits(up)) return up;
+        const down = start - d;
+        if (down >= lo && fits(down)) return down;
+    }
+    return null;
 }
 
-/** The outcome of a {@link gridify_gridfit} run. */
-export interface GridFitResult {
-    /** Every non-empty quadtree node produced during subdivision. */
-    nodes: QuadNode[];
-    /** Points that were successfully placed. */
-    final: Placement[];
-    /** Points the fit could not place. */
-    leftovers: number[];
-    /** Set when the fit bailed out early, with the reason. */
-    error: string | null;
+/** Fills a region row by row; anything that will not fit is returned. */
+function fill(
+    indices: readonly number[],
+    [x_min, x_max, y_min, y_max]: Extent,
+    out: (Point | undefined)[],
+): number[] {
+    const leftovers: number[] = [];
+    let k = 0;
+    for (let x = x_min; x < x_max && k < indices.length; ++x) {
+        for (let y = y_min; y < y_max && k < indices.length; ++y) {
+            out[indices[k++]] = [x, y];
+        }
+    }
+    for (; k < indices.length; ++k) leftovers.push(indices[k]);
+    return leftovers;
 }
 
-function area([x_min, x_max, y_min, y_max]: Extent): number {
-    return (x_max - x_min) * (y_max - y_min);
+/**
+ * Recursively partitions `indices` into the region `E`, per §3.2.
+ *
+ * @returns Indices that could not be placed.
+ */
+function partition(
+    data: readonly Point[],
+    indices: readonly number[],
+    E: Extent,
+    out: (Point | undefined)[],
+): number[] {
+    const [x_min, x_max, y_min, y_max] = E;
+    const count = indices.length;
+    if (count === 0) return [];
+
+    const w = x_max - x_min;
+    const h = y_max - y_min;
+    // Nothing left to divide, or nothing to gain by dividing.
+    if (w <= 1 || h <= 1 || count === 1) return fill(indices, E, out);
+
+    // Points belong to the *equally sized* quadrant, per the definition of P(B).
+    const mx = x_min + Math.floor(w / 2);
+    const my = y_min + Math.floor(h / 2);
+    const q: number[][] = [[], [], [], []];
+    for (const i of indices) {
+        const [px, py] = data[i];
+        const right = px >= mx ? 1 : 0;
+        const top = py >= my ? 2 : 0;
+        q[right + top].push(i);
+    }
+    const [P1, P2, P3, P4] = q.map((g) => g.length);
+
+    // x^i: the left column must hold B1 and B3, the right column B2 and B4.
+    const x = shift(
+        mx,
+        x_min + 1,
+        x_max - 1,
+        (m) => P1 + P3 <= area(x_min, m, y_min, y_max) && P2 + P4 <= area(m, x_max, y_min, y_max),
+    );
+    if (x === null) return fill(indices, E, out);
+
+    // y1^i and y2^i: each column gets its own horizontal divider.
+    const y1 = shift(
+        my,
+        y_min + 1,
+        y_max - 1,
+        (m) => P1 <= area(x_min, x, y_min, m) && P3 <= area(x_min, x, m, y_max),
+    );
+    const y2 = shift(
+        my,
+        y_min + 1,
+        y_max - 1,
+        (m) => P2 <= area(x, x_max, y_min, m) && P4 <= area(x, x_max, m, y_max),
+    );
+    if (y1 === null || y2 === null) return fill(indices, E, out);
+
+    // E(B1..B4) of §3.2.
+    const children: [number[], Extent][] = [
+        [q[0], [x_min, x, y_min, y1]],
+        [q[1], [x, x_max, y_min, y2]],
+        [q[2], [x_min, x, y1, y_max]],
+        [q[3], [x, x_max, y2, y_max]],
+    ];
+
+    const leftovers: number[] = [];
+    for (const [group, extent] of children) {
+        leftovers.push(...partition(data, group, extent, out));
+    }
+    return leftovers;
 }
 
-function extent_of(indices: readonly number[], data: readonly Point[]): Extent {
+/**
+ * Places `index` at the free cell nearest `[cx, cy]`, searching outward.
+ *
+ * §3.3: a straight-line partition is not always possible even when
+ * `P(B) <= A(B)`, so the paper keeps the stragglers aside and places them at
+ * the nearest unoccupied position in a second pass.
+ */
+function place_nearest(
+    index: number,
+    [cx, cy]: Point,
+    E: Extent,
+    taken: Set<number>,
+    stride: number,
+    out: (Point | undefined)[],
+): boolean {
+    const [x_min, x_max, y_min, y_max] = E;
+    const reach = Math.max(x_max - x_min, y_max - y_min);
+    for (let r = 0; r <= reach; ++r) {
+        for (let dx = -r; dx <= r; ++dx) {
+            for (let dy = -r; dy <= r; ++dy) {
+                if (r > 0 && Math.abs(dx) !== r && Math.abs(dy) !== r) continue;
+                const x = cx + dx;
+                const y = cy + dy;
+                if (x < x_min || x >= x_max || y < y_min || y >= y_max) continue;
+                const key = (x - x_min) * stride + (y - y_min);
+                if (taken.has(key)) continue;
+                taken.add(key);
+                out[index] = [x, y];
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+/**
+ * Removes overlaps by hierarchically partitioning the data space, shifting each
+ * dividing line by the smallest amount that leaves every subregion enough grid
+ * cells for its points.
+ *
+ * @param D - Input points, in grid-cell units.
+ * @returns One grid cell per input point, in input order.
+ */
+export function gridify_gridfit(D: readonly Point[]): Point[] {
+    const N = D.length;
+    const out: (Point | undefined)[] = new Array(N);
+    if (N === 0) return [];
+
     let x_min = Infinity;
     let x_max = -Infinity;
     let y_min = Infinity;
     let y_max = -Infinity;
-    for (const i of indices) {
-        const [x, y] = data[i];
+    for (const [x, y] of D) {
         if (x < x_min) x_min = x;
         if (x > x_max) x_max = x;
         if (y < y_min) y_min = y;
         if (y > y_max) y_max = y;
     }
-    return [x_min, x_max, y_min, y_max];
-}
+    x_min = Math.floor(x_min);
+    y_min = Math.floor(y_min);
+    x_max = Math.floor(x_max) + 1;
+    y_max = Math.floor(y_max) + 1;
 
-/** Recursively subdivides `node` into four quadrants until cells are unit-sized. */
-function quadtree(
-    data: readonly Point[],
-    node: QuadNode,
-    [x_min, x_max, y_min, y_max]: Extent,
-    nodes: QuadNode[],
-): void {
-    if (Math.abs(x_max - x_min) <= 1 || Math.abs(y_max - y_min) <= 1) {
-        return;
+    // A(B0) >= P(B0) is the precondition for the whole recursion: the display
+    // must have at least as many cells as there are points. Grow the region
+    // outward, keeping its aspect, until it does.
+    while (area(x_min, x_max, y_min, y_max) < N) {
+        if (x_max - x_min <= y_max - y_min) x_max += 1;
+        else y_max += 1;
     }
 
-    const x_mid = Math.min(Math.max(x_min, Math.floor((x_max + x_min) / 2)), x_max - 1);
-    const y_mid = Math.min(Math.max(y_min, Math.floor((y_max + y_min) / 2)), y_max - 1);
+    const root: Extent = [x_min, x_max, y_min, y_max];
+    const indices = Array.from({ length: N }, (_, i) => i);
+    const leftovers = partition(D, indices, root, out);
 
-    const quadrants: Extent[] = [
-        [x_min, x_mid, y_min, y_mid], // B1
-        [x_mid, x_max, y_min, y_mid], // B2
-        [x_min, x_mid, y_mid, y_max], // B3
-        [x_mid, x_max, y_mid, y_max], // B4
-    ];
-
-    node.children = quadrants.map(([qx_min, qx_max, qy_min, qy_max], q) => {
-        // The upper half of each axis is exclusive at the midpoint, so a point
-        // on the boundary lands in exactly one quadrant.
-        const low_x = q === 0 || q === 2;
-        const low_y = q === 0 || q === 1;
-        const indices = node.indices.filter((i) => {
-            const [x, y] = data[i];
-            const in_x = low_x ? x >= qx_min && x <= qx_max : x > qx_min && x <= qx_max;
-            const in_y = low_y ? y >= qy_min && y <= qy_max : y > qy_min && y <= qy_max;
-            return in_x && in_y;
-        });
-        return { indices, E: [qx_min, qx_max, qy_min, qy_max] as Extent, parent: node };
-    });
-
-    nodes.push(...node.children.filter((child) => child.indices.length > 0));
-
-    node.children.forEach((child) => {
-        if (child.indices.length > 0) quadtree(data, child, child.E, nodes);
-    });
-}
-
-/**
- * Slides a dividing line until both sides have enough cells for their points.
- *
- * @returns The settled position, or `null` if no position satisfies both sides.
- */
-function balance(
-    start: number,
-    lo: number,
-    hi: number,
-    P_low: number,
-    P_high: number,
-    area_low: (mid: number) => number,
-    area_high: (mid: number) => number,
-): number | null {
-    let mid = start;
-    const fits = (m: number) => P_low <= area_low(m) && P_high <= area_high(m);
-    if (fits(mid)) return mid;
-
-    const direction = P_low <= area_low(mid) ? -1 : P_high <= area_high(mid) ? 1 : 0;
-    // direction 0 means neither side fits at any offset, so sliding is futile.
-    if (direction === 0) return null;
-
-    // The line can only occupy positions in [lo, hi], which bounds the walk and
-    // rules out the runaway loop the original could fall into.
-    for (let step = 0; step <= hi - lo; ++step) {
-        mid += direction;
-        if (mid < lo || mid > hi) return null;
-        if (fits(mid)) return mid;
+    // Second pass for anything the partition could not seat (§3.3).
+    const stride = y_max - y_min;
+    const taken = new Set<number>();
+    for (const cell of out) {
+        if (cell) taken.add((cell[0] - x_min) * stride + (cell[1] - y_min));
     }
-    return null;
-}
-
-/** Assigns concrete cells to the points of a leaf node. */
-function place_leaf(node: QuadNode, result: GridFitResult): void {
-    const [x_min, x_max, y_min, y_max] = node.E;
-    if (node.indices.length === 0) return;
-    const remaining = node.indices.slice();
-    const x_span = x_max - x_min;
-    const y_span = y_max - y_min;
-
-    for (let dx = 0; dx < x_span; ++dx) {
-        for (let dy = 0; dy < y_span; ++dy) {
-            if (remaining.length === 0) break;
-            const i = remaining.pop() as number;
-            result.final.push({ i, cell: [x_min + dx, y_min + dy] });
-        }
-    }
-    if (remaining.length > 0) {
-        result.leftovers.push(...remaining);
-    }
-}
-
-/** Recursively fits each subtree into its share of the grid. */
-function fit(node: QuadNode, result: GridFitResult): void {
-    const [x_min, x_max, y_min, y_max] = node.E;
-    if (!node.children) {
-        place_leaf(node, result);
-        return;
+    for (const i of leftovers) {
+        const [px, py] = D[i];
+        const cx = Math.min(Math.max(Math.floor(px), x_min), x_max - 1);
+        const cy = Math.min(Math.max(Math.floor(py), y_min), y_max - 1);
+        place_nearest(i, [cx, cy], root, taken, stride, out);
     }
 
-    const y_mid = Math.floor((y_max + y_min) / 2);
-    const [B1, B2, B3, B4] = node.children;
-    const [P1, P2, P3, P4] = node.children.map((child) => child.indices.length);
-
-    // Vertical divider: columns left of it must hold B1 and B3.
-    const x_mid = balance(
-        Math.floor((x_max + x_min) / 2),
-        x_min,
-        x_max,
-        P1 + P3,
-        P2 + P4,
-        (m) => area([x_min, m, y_min, y_max]),
-        (m) => area([m, x_max, y_min, y_max]),
-    );
-    if (x_mid === null) {
-        result.error ??= "no vertical split leaves enough space for both halves";
-        result.leftovers.push(...node.indices);
-        return;
-    }
-
-    // Horizontal dividers, one per column.
-    const y_1 = balance(
-        y_mid, y_min, y_max, P1, P3,
-        (m) => area([x_min, x_mid, y_min, m]),
-        (m) => area([x_min, x_mid, m, y_max]),
-    );
-    const y_2 = balance(
-        y_mid, y_min, y_max, P2, P4,
-        (m) => area([x_mid, x_max, y_min, m]),
-        (m) => area([x_mid, x_max, m, y_max]),
-    );
-    if (y_1 === null || y_2 === null) {
-        result.error ??= "no horizontal split leaves enough space for both halves";
-        result.leftovers.push(...node.indices);
-        return;
-    }
-
-    // set new borders
-    B1.E[1] = x_mid;
-    B3.E[1] = x_mid;
-    B2.E[0] = x_mid;
-    B4.E[0] = x_mid;
-    B1.E[3] = y_1;
-    B3.E[2] = y_1;
-    B2.E[3] = y_2;
-    B4.E[2] = y_2;
-    node.children.forEach((child) => fit(child, result));
-}
-
-/**
- * Removes overlaps by recursively fitting a quadtree of the data onto the grid,
- * sliding each subdivision line until both sides have room for their points.
- *
- * The original implementation referenced an unimported `d3` and could never
- * run; `d3.extent`/`d3.range` are now computed locally. The algorithm itself is
- * unchanged and still needs validation against the paper.
- *
- * @param D - Input points, in grid-cell units.
- */
-export function gridify_gridfit(D: readonly Point[]): GridFitResult {
-    const N = D.length;
-    const result: GridFitResult = { nodes: [], final: [], leftovers: [], error: null };
-
-    const root: QuadNode = { indices: Array.from({ length: N }, (_, i) => i), E: [0, 0, 0, 0] };
-    root.E = extent_of(root.indices, D);
-    quadtree(D, root, root.E, result.nodes);
-    fit(root, result);
-
-    return result;
+    return out.map((cell) => cell ?? [x_min, y_min]);
 }

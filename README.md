@@ -50,6 +50,7 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
 | `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter`, `max_rescales` |
 | `nmap` | a space filling treemap approach | `BB`, `squared` |
+| `gridfit` | hierarchical partitioning that keeps points near their original cell | none; input is in grid-cell units |
 
 ### `cmds` is iterative
 
@@ -313,9 +314,47 @@ even short side and an odd long side, and nothing outside that family fails, so 
 steps off it by growing the long side by one — a single extra row or column. Passing `width` and
 `height` explicitly can still land on a discontinuous shape.
 
+## Gridfit
+
+`gridfit` (Keim & Herrmann, IEEE Visualization '98) hierarchically partitions the data space,
+shifting each dividing line by the smallest integer amount that leaves every subregion at least as
+many grid cells as it has points — the invariant `P(B) <= A(B)` of §3.2.
+
+It could never run: it referenced an unimported `d3` and threw a `ReferenceError` on the first line
+of work. Once that was fixed it still dropped points, for two reasons:
+
+- **The extent convention was inconsistent.** `area()` counted `x_max - x_min` cells while the point
+  filter accepted `x_min <= x <= x_max`, one column more, so every region was allocated one fewer
+  cell than it took points for. Harmless at the root, fatal a few levels down where regions are two
+  or three cells wide.
+- **Partitioning and divider placement were separate passes.** The whole quadtree was built against
+  unshifted extents, and only then walked shifting dividers — so every node's children had been
+  positioned against an extent their parent no longer had. The paper interleaves the two, level by
+  level, and it is now a single recursive pass.
+
+It also now searches both directions for the smallest shift, as `min{x ∈ ℤ | ...}` requires, and
+implements the second pass of §3.3 that seats anything a straight-line partition could not.
+
+Every point is placed in its own cell, and the mean displacement from its original position stays
+under one cell — which is optimization goal (1) of §2.1:
+
+| N | time | mean displacement |
+| ---- | ---- | ---- |
+| 1 000 | 2 ms | 0.73 cells |
+| 5 000 | 5 ms | 0.73 cells |
+| 20 000 | 19 ms | 0.75 cells |
+
+`gridfit` takes coordinates already in grid-cell units, and is the most robust method here on awkward
+data: identical points, single rows or columns, and heavy duplicates all place cleanly, where `nmap`
+rejects them.
+
 ## Known issues
+
+- `hilbert` can leave a few points sharing a cell when the input has exact duplicates: its collision
+  walk resolves most but not all of them. On a 200-point set with 195 distinct positions it returns
+  196 distinct cells. Pre-existing, and byte-identical to `0.1.1`. `gridfit` and `gilbert` handle the
+  same input cleanly.
 
 - `gosper` does not preserve the data's aspect ratio for elongated inputs; use `gilbert` for those.
 - `nmap` cannot lay out data where a subdivision has no spread on the axis it is cut along, and now
   throws rather than returning `NaN`. See below.
-- `gridfit` runs but has not been validated against its paper.
