@@ -1,25 +1,62 @@
-import json from '@rollup/plugin-json';
-import { terser } from 'rollup-plugin-terser';
-import resolve from 'rollup-plugin-node-resolve';
+import typescript from "@rollup/plugin-typescript";
+import resolve from "@rollup/plugin-node-resolve";
+import terser from "@rollup/plugin-terser";
+import replace from "@rollup/plugin-replace";
+import dts from "rollup-plugin-dts";
+import pkg from "./package.json" with { type: "json" };
 
-export default {
-  input: 'src/main.js',
-  output: [{
-    file: 'dist/hagrid.js',
-    name: 'hagrid',
-    format: 'umd'
-  },
-  {
-    file: 'dist/hagrid.es.js',
-    name: 'hagrid',
-    format: 'es'
-  },
-  {
-    file: 'dist/hagrid.min.js',
-    format: 'umd',
-    name: 'hagrid',
-    plugins: [terser()]
-  }],
-  plugins: [ json(), resolve() ],
-  external:[ "d3Delaunay" ],
-};
+const banner = `/* ${pkg.name} v${pkg.version} — ${pkg.homepage} */`;
+
+// d3-delaunay is a runtime dependency, so it must stay out of the ESM/CJS
+// bundles. The browser build is the exception: a <script> tag has no resolver,
+// so that one bundles it in.
+const external = [...Object.keys(pkg.dependencies ?? {})];
+
+const plugins = (opts = {}) => [
+    replace({
+        preventAssignment: true,
+        __VERSION__: JSON.stringify(pkg.version),
+    }),
+    resolve(),
+    typescript({
+        tsconfig: "./tsconfig.json",
+        // Types are emitted once, by the dts bundle below.
+        declaration: false,
+        declarationMap: false,
+        outDir: undefined,
+        ...opts,
+    }),
+];
+
+export default [
+    {
+        input: "src/main.ts",
+        external,
+        output: [
+            { file: pkg.module, format: "es", banner, sourcemap: true },
+            { file: pkg.main, format: "cjs", banner, sourcemap: true, exports: "named" },
+        ],
+        plugins: plugins(),
+    },
+    {
+        input: "src/main.ts",
+        output: [
+            { file: "dist/hagrid.umd.js", format: "umd", name: "hagrid", banner, sourcemap: true },
+            {
+                file: "dist/hagrid.min.js",
+                format: "umd",
+                name: "hagrid",
+                banner,
+                sourcemap: true,
+                plugins: [terser()],
+            },
+        ],
+        plugins: plugins(),
+    },
+    {
+        input: "src/main.ts",
+        external,
+        output: { file: pkg.types, format: "es" },
+        plugins: [dts()],
+    },
+];
