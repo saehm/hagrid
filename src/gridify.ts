@@ -1,5 +1,6 @@
 import { get_bounds, remap } from "./utils.js";
 import { gridify_hilbert } from "./hilbert.js";
+import { gridify_gilbert } from "./gilbert.js";
 import { gridify_gosper } from "./gosper.js";
 import { gridify_dgrid } from "./dgrid.js";
 import { gridify_nmap } from "./nmap.js";
@@ -7,7 +8,13 @@ import { gridify_cmds, type CMDSStep } from "./cmds.js";
 import type { Point, Region } from "./types.js";
 
 /** Overlap-removal methods reachable through {@link gridify}. */
-export type GridifyMethod = "hilbert" | "gosper" | "dgrid" | "cmds" | "nmap";
+export type GridifyMethod =
+    | "hilbert"
+    | "gilbert"
+    | "gosper"
+    | "dgrid"
+    | "cmds"
+    | "nmap";
 
 /** Result of a method that produces a final layout directly. */
 export interface GridifyResult {
@@ -32,8 +39,11 @@ export interface GridifyStepsResult {
 export interface GridifyParameters {
     /** `hilbert`, `gosper`: extra curve levels beyond the fitted minimum. */
     pluslevel?: number;
-    /** `hilbert`: inflates the grid so cells outnumber points. */
+    /** `hilbert`, `gilbert`: inflates the grid so cells outnumber points. */
     whitespace?: number;
+    /** `gilbert`: explicit grid size. Derived from the data's aspect ratio if omitted. */
+    width?: number;
+    height?: number;
     /** `hilbert`: preserves the data's aspect ratio. */
     keep_aspect_ratio?: boolean;
     /** `gosper`: which way up the hexagons sit. Defaults to `"flat"`. */
@@ -68,9 +78,9 @@ function timed(run: () => Point[]): GridifyResult {
  * Removes overlaps in a scatterplot by snapping points onto a grid.
  *
  * @param data - Input points as `[x, y]`.
- * @param method - Which technique to apply. `hilbert` and `gosper` use space
- *   filling curves; `dgrid`, `cmds` and `nmap` are reimplementations of other
- *   published techniques.
+ * @param method - Which technique to apply. `hilbert`, `gilbert` and `gosper`
+ *   use space filling curves; `dgrid`, `cmds` and `nmap` are reimplementations
+ *   of other published techniques.
  * @param parameters - Method-specific options; see {@link GridifyParameters}.
  *
  * @example
@@ -109,6 +119,16 @@ export function gridify(
                 }),
             );
         }
+        case "gilbert":
+            // Unlike `hilbert` this keeps the grid proportional to the data,
+            // so a wide dataset is not padded into a mostly-empty square.
+            return timed(() =>
+                gridify_gilbert(data, {
+                    width: parameters.width,
+                    height: parameters.height,
+                    whitespace: parameters.whitespace,
+                }),
+            );
         case "gosper": {
             // Defaulted like hilbert's; previously this read an absent
             // `pluslevel` and produced a NaN level.

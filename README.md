@@ -32,6 +32,7 @@ Or use a method directly, which skips the parameter defaulting `gridify` does fo
 
 ```js
 const positions = hagrid.gridify_hilbert(data, { level });
+const positions = hagrid.gridify_gilbert(data);
 const positions = hagrid.gridify_gosper(data, { level });
 const positions = hagrid.gridify_dgrid(data, { aspect_ratio: 1 });
 const positions = hagrid.gridify_nmap(data);
@@ -43,7 +44,8 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 
 | name | description | parameters |
 | ---- | ---- | ---- |
-| `hilbert` | uses the Hilbert curve, produces rectangular grid cells | `pluslevel` (default `0`), `whitespace` (default `1`), `keep_aspect_ratio` |
+| `hilbert` | uses the Hilbert curve, produces rectangular grid cells on a square grid | `pluslevel` (default `0`), `whitespace` (default `1`), `keep_aspect_ratio` |
+| `gilbert` | generalized Hilbert curve on a grid matching the data's aspect ratio | `whitespace` (default `1`), or explicit `width` and `height` |
 | `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `orientation` (default `"flat"`) |
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
 | `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter` |
@@ -72,6 +74,12 @@ for await (const [layout, proximity_graph] of steps) {
 - **`gridify_gridfit` returns `{ nodes, final, leftovers, error }`** and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
+
+## Licence
+
+hagrid is licensed under the **GNU Lesser General Public License v3.0 or later**; see `COPYING.LESSER`
+and `COPYING`. Third-party notices, including the BSD 2-Clause notice for the gilbert algorithm, are
+in `THIRD-PARTY.md`.
 
 ## Development
 
@@ -186,11 +194,43 @@ step length are unchanged and indexing round-trips exactly in either orientation
 switching turns the lattice *underneath* the data rather than carrying each point to a matching
 cell, so points are reassigned — that is usually the point of the option.
 
+## Elongated data
+
+`hilbert` needs a square, power-of-two grid, so a wide dataset is either stretched out of shape or
+padded into a mostly-empty square — for a 1000x10 extent, roughly 1% of the cells are usable, so
+holding the same number of points needs ~100x more of them. `gosper` fits its island isotropically
+and fares no better: a 1000x10 dataset comes back at aspect 2.8 rather than 100.
+
+`gilbert` is a generalized Hilbert curve that fills an arbitrary `width x height` rectangle, so the
+grid can simply match the data:
+
+```js
+const { positions } = hagrid.gridify(data, "gilbert");
+const { positions } = hagrid.gridify(data, "gilbert", { width: 200, height: 5 });
+```
+
+| N, at 1000x10 aspect | `gilbert` | `hilbert` (padded square) |
+| ---- | ---- | ---- |
+| 1 000 | 1 000 cells (250x4) | 262 144 |
+| 10 000 | 10 000 cells (1000x10) | 1 048 576 |
+| 100 000 | 100 000 cells (3125x32) | 16 777 216 |
+
+It costs about 6x more per query than `hilbert` — a recursive descent rather than bit twiddling —
+which two orders of magnitude fewer cells more than repays. It also has no power-of-two constraint
+and no level ceiling.
+
+One wrinkle: the curve is discontinuous on 506 of the 2304 shapes up to 48x48 — consecutive indices
+land two cells apart instead of one. The mapping is still a bijection, so every point gets its own
+cell and nothing visibly breaks, but the point of a curve is that neighbours along it are neighbours
+in the plane, and collision resolution walks the index assuming that. Every failing shape has an
+even short side and an odd long side, and nothing outside that family fails, so `gilbert_dimensions`
+steps off it by growing the long side by one — a single extra row or column. Passing `width` and
+`height` explicitly can still land on a discontinuous shape.
+
 ## Known issues
 
-- Neither curve method preserves the data's aspect ratio for elongated inputs. On a 1000x10
-  dataset the output comes back at aspect 2.8 rather than 100, because the island is fitted
-  isotropically and collisions then spread points outward. A rectangle-aware fit — or a
-  generalized rectangular curve — would be the real fix.
+- `gosper` does not preserve the data's aspect ratio for elongated inputs; use `gilbert` for those.
+- `nmap` produces non-finite positions on inputs with many duplicate coordinates — 135 of 400 on a
+  1000x10 grid-like dataset. Pre-existing: `0.1.1` does the same. Related to the `sizes()` bug below.
 - `nmap`'s internal `sizes()` splits a region using the first half's point count for both halves, so subdivisions are not proportional. Preserved for now because fixing it changes every `nmap` output.
 - `gridfit` runs but has not been validated against its paper.

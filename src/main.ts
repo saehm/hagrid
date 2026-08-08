@@ -5,6 +5,7 @@ export const version: string = __VERSION__;
 
 export * from "./types.js";
 export * from "./hilbert.js";
+export * from "./gilbert.js";
 export * from "./gosper.js";
 export * from "./dgrid.js";
 export * from "./nmap.js";

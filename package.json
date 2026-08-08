@@ -10,7 +10,7 @@
         "gosper",
         "visualization"
     ],
-    "license": "MIT",
+    "license": "LGPL-3.0-or-later",
     "homepage": "https://renecutura.eu",
     "author": {
         "name": "Rene Cutura",
@@ -40,7 +40,10 @@
     },
     "files": [
         "dist/",
-        "README.md"
+        "README.md",
+        "COPYING",
+        "COPYING.LESSER",
+        "THIRD-PARTY.md"
     ],
     "engines": {
         "node": ">=18"
