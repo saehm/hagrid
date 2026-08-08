@@ -61,8 +61,12 @@ export interface GridifyParameters {
     size?: number;
     /** `cmds`: weight of the boundary constraint. Defaults to `0.1`. */
     alpha?: number;
-    /** `cmds`: maximum outer iterations. Defaults to `50`. */
+    /** `cmds`: rounds of Algorithm 1 before the grid is grown. */
     max_iter?: number;
+    /** `cmds`: how many times the grid may grow before giving up. */
+    max_rescales?: number;
+    /** `cmds`: inner iterations per round, `N` in Algorithm 1. Defaults to `20`. */
+    inner_iterations?: number;
     /** `nmap`: region to fill. Defaults to the data's bounding box. */
     BB?: import("./types.js").Bounds | null;
     /** `nmap`: pads the input so it fills a square grid. */
@@ -135,7 +139,14 @@ export function gridify(
             // Defaulted like hilbert's; previously this read an absent
             // `pluslevel` and produced a NaN level.
             const pluslevel = parameters.pluslevel ?? 0;
-            const level = Math.ceil(Math.log2(data.length) / Math.log2(7) + 1) + pluslevel;
+            const whitespace = parameters.whitespace ?? 1;
+            // A level-L curve has 7^L cells, so log7 of the point count is the
+            // smallest level that fits. The old formula added 1 on top of that,
+            // which multiplied the cell count by seven — 28x more cells than
+            // points at N = 600, against hilbert's 1.7x. Use `whitespace` (or
+            // `pluslevel`) to ask for slack deliberately.
+            const level =
+                Math.ceil(Math.log2(data.length * whitespace) / Math.log2(7)) + pluslevel;
             return timed(() =>
                 gridify_gosper(data, { level, orientation: parameters.orientation }),
             );
@@ -167,6 +178,8 @@ export function gridify(
                     size: parameters.size,
                     alpha: parameters.alpha,
                     max_iter: parameters.max_iter,
+                    max_rescales: parameters.max_rescales,
+                    inner_iterations: parameters.inner_iterations,
                 }),
             };
         }

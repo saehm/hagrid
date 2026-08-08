@@ -46,9 +46,9 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 | ---- | ---- | ---- |
 | `hilbert` | uses the Hilbert curve, produces rectangular grid cells on a square grid | `pluslevel` (default `0`), `whitespace` (default `1`), `keep_aspect_ratio` |
 | `gilbert` | generalized Hilbert curve on a grid matching the data's aspect ratio | `whitespace` (default `1`), or explicit `width` and `height` |
-| `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `orientation` (default `"flat"`) |
+| `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `whitespace` (default `1`), `orientation` (default `"flat"`) |
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
-| `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter`, `max_rescales` |
+| `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter`, `max_rescales`, `inner_iterations` |
 | `nmap` | a space filling treemap approach | `BB`, `squared` |
 | `gridfit` | hierarchical partitioning that keeps points near their original cell | none; input is in grid-cell units |
 
@@ -77,7 +77,9 @@ for await (const [layout, proximity_graph, size] of steps) {
 - **`gridify(data, "cmds", …)` returns `{ steps }`**, an async generator. Previously it returned a generator that could not complete: the final proximity graph was constructed with the wrong arity, so the grid-snapped layout always threw before reaching the caller.
 - **`gridify(data, "gosper", …)` works without an explicit `pluslevel`.** It previously read an absent `pluslevel` and computed a `NaN` curve level.
 - **There is now one Gosper implementation.** `gosper.js` and `gosper2.js` both exported `gosper_encode`, `gosper_decode` and `gridify_gosper`, and which one you got depended on whether you called the export directly or went through `gridify`. The curve-building one has been removed in favour of the direct indexing of Uher et al., which keeps the plain names — `gosper_encode`, `gosper_decode`, `gosper_size`, `gosper_curve`, `gridify_gosper`. Layouts differ from `0.1.x`. `scale_factor` is gone (the fit is isotropic now); `orientation` replaces it. `gosper_encode` returns `-1` outside the island, and `CurveIndex` is gone with the scan it existed to accelerate.
-- **`gridify_gridfit` returns `{ nodes, final, leftovers, error }`** and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
+- **`gridify_gridfit` returns `Point[]`** like every other method, and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
+- **`gosper` uses far fewer cells.** The level formula added 1 on top of `log7(N)`, multiplying the cell count by seven — 28x more cells than points at N = 600. It now takes `whitespace` like `hilbert`.
+- **`nmap`'s `squared` option works.** It threw whenever filler points were actually needed, and did nothing when they were not.
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
 
@@ -274,12 +276,25 @@ distance as `d_ij = l_ij + δ_ij`, so once a pair is separated `δ_ij` drops bac
 pulls them together, and the overlap returns — measured overlap alternated exactly `0 → 5.19 → 0`
 with period two.
 
-**This is improved rather than solved.** `cmds` now terminates and converges on most inputs, where
-before it converged on none. But it typically has to shrink the nodes to around 1% of the plot area,
-where the paper reports converged layouts at roughly 70%. Something in the implementation still
-differs from the paper, and `cmds` remains the least trustworthy method here — prefer `hilbert`,
-`gilbert` or `gosper`. When a run does not converge, the final grid snap can place two nodes in the
-same cell.
+The grid growth was also far too eager. Overlaps do fall at a fixed node size — 538 down to 24 over
+1830 rounds in one measurement — so the layout largely resolves itself when given the chance.
+Growing the grid after only a few rounds instead crushed the nodes to 2% of the plot area:
+
+| rounds before growing | final packing |
+| ---- | ---- |
+| 10 | 2% |
+| 200 | 33% |
+| 800 | 71% |
+
+71% is what the paper reports. `max_iter` is the quality/time dial, and since cost is linear in it
+the default (150) trades some packing for responsiveness. Building the proximity graph no longer
+allocates an edge object for all `n²` pairs before filtering, which is what made rounds expensive.
+
+**Still improved rather than solved.** `cmds` remains the least trustworthy method here — prefer
+`hilbert`, `gilbert`, `gosper` or `gridfit`. It rarely satisfies its own end condition, so it
+usually runs the full budget, and a run that stops with overlaps left can snap two nodes into one
+cell. It also returns non-finite positions on inputs with exact duplicates: coincident points have
+an ideal distance of zero, so the weight `1/d²` is infinite.
 
 ## Elongated data
 

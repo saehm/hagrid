@@ -144,6 +144,26 @@ function sizes(Da: FillerPoint[], Db: FillerPoint[], size: number): Point {
 }
 
 /**
+ * The region a run should fill: the data's bounding box, or the smallest
+ * square containing it when `squared` is asked for.
+ *
+ * Padding the point set alone does not square anything — the layout's shape
+ * follows the region it is given, so the region has to be square too.
+ */
+function region_for(D: readonly Point[], parameters: NMapParameters): Bounds {
+    if (parameters.BB) return parameters.BB;
+    const bb = get_bounds(D);
+    if (parameters.squared !== true) return bb;
+    const side = Math.max(bb.width, bb.height);
+    return {
+        x: bb.x + bb.width / 2 - side / 2,
+        y: bb.y + bb.height / 2 - side / 2,
+        width: side,
+        height: side,
+    };
+}
+
+/**
  * Pads the point set with synthetic border points until it fills a square
  * grid, after https://github.com/sebastian-meier/nmap-squared.js
  *
@@ -194,26 +214,42 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
         ] as FillerPoint);
     }
 
-    while (sq_missing > 0) {
+    while (sq_missing > 0 && extra.length > 0) {
         extra = calcDist(extra, D);
-        D.push(extra[extra.length - 1]);
+        // Take the candidate sitting in the emptiest space, and take it *out*
+        // of the pool. Peeking at it instead — which is what this used to do —
+        // appended the same point `sq_missing` times, and a pile of identical
+        // points has no extent to subdivide, so the layout then failed.
+        D.push(extra.pop() as FillerPoint);
         --sq_missing;
     }
 
     return D;
 }
 
-/** Ranks candidates in `A` by distance to the nearest point of `B`. */
+/**
+ * Ranks candidates in `A` by distance to the nearest point of `B`, farthest
+ * last — so the tail of the list is the emptiest space.
+ *
+ * `dist` starts at `Infinity`. Leaving it `undefined`, as this used to, made
+ * every `t_dist < a.dist` comparison false, so no distance was ever recorded
+ * and the comparator returned `NaN` — the sort did nothing at all.
+ *
+ * The value carries across calls on purpose: `B` only ever grows, so the
+ * nearest distance can only shrink, and keeping the running minimum is both
+ * correct and cheaper than starting over.
+ */
 function calcDist(A: FillerPoint[], B: FillerPoint[]): FillerPoint[] {
     for (let i = 0; i < A.length; ++i) {
         const a = A[i];
+        if (a.dist === undefined) a.dist = Infinity;
         for (let j = 0; j < B.length; ++j) {
             const b = B[j];
             let t_dist = Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2);
             if (b[2] === undefined) {
                 t_dist *= 2;
             }
-            if (t_dist < (a.dist as number)) {
+            if (t_dist < a.dist) {
                 a.dist = t_dist;
             }
         }
@@ -251,7 +287,7 @@ export function nmap_regions(
     parameters: NMapParameters = {},
 ): NMapCell[] {
     const G: Region[] = [];
-    const BB = parameters.BB ?? get_bounds(D);
+    const BB = region_for(D, parameters);
     let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
     if (parameters.squared === true) {
         added_index = squared(added_index, BB);
@@ -277,7 +313,7 @@ export function gridify_nmap(
     parameters: NMapParameters = {},
 ): Point[] {
     const G: Region[] = [];
-    const BB = parameters.BB ?? get_bounds(D);
+    const BB = region_for(D, parameters);
     let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
     if (parameters.squared === true) {
         added_index = squared(added_index, BB);

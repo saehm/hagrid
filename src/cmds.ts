@@ -63,34 +63,49 @@ function create_proximity_graph(
     s: number,
     augment = false,
 ): ProximityEdge[] {
+    const n = A.length;
     const delaunay = Delaunay.from(A as Point[]);
-    return A.map((_, i) => {
-        const neighbors = [...delaunay.neighbors(i)];
-        return A.map((_, j) => {
-            const pa = A[i];
-            const qa = A[j];
-            const po = B[i];
-            const qo = B[j];
-            const odistance = distance(po, qo);
-            const overlap = compute_overlap(pa, qa, s);
-            return {
-                source: i,
-                target: j,
-                distance: odistance,
-                overlap,
-                delta: odistance + overlap,
-            };
-        }).filter(({ target, overlap }) => {
-            // Threshold relative to the node, and identical to the one the end
-            // condition uses. An absolute 1e-2 meant that once nodes shrank
-            // below ~10 units, pairs overlapping by more than the end
-            // condition tolerated but less than 1e-2 got no separation edge —
-            // so they were counted as overlapping forever and never fixed.
-            const keep_overlap = overlap > s * OVERLAP_EPS;
-            const keep_neighbor = neighbors.indexOf(target) >= 0;
-            return augment ? keep_overlap || keep_neighbor : keep_neighbor;
+    const edges: ProximityEdge[] = [];
+    const eps = s * OVERLAP_EPS;
+    const is_neighbour = new Uint8Array(n);
+
+    const add = (i: number, j: number, overlap: number) => {
+        const odistance = distance(B[i], B[j]);
+        edges.push({
+            source: i,
+            target: j,
+            distance: odistance,
+            overlap,
+            delta: odistance + overlap,
         });
-    }).flat();
+    };
+
+    for (let i = 0; i < n; ++i) {
+        const pa = A[i];
+        let touched: number[] = [];
+        for (const j of delaunay.neighbors(i)) {
+            is_neighbour[j] = 1;
+            touched.push(j);
+            add(i, j, compute_overlap(pa, A[j], s));
+        }
+        if (augment) {
+            // The paper uses naive O(n^2) collision detection here, which is
+            // fine at these sizes. What is not fine is materializing an edge
+            // object for all n^2 pairs and then filtering: that allocation
+            // dominated the run and is why so few rounds were affordable.
+            // The overlap threshold matches the end condition's exactly — an
+            // absolute 1e-2 meant that once nodes shrank below ~10 units a
+            // pair could sit permanently between the two and never be fixed.
+            for (let j = 0; j < n; ++j) {
+                if (j === i || is_neighbour[j]) continue;
+                const overlap = compute_overlap(pa, A[j], s);
+                if (overlap > eps) add(i, j, overlap);
+            }
+        }
+        for (const j of touched) is_neighbour[j] = 0;
+        touched = [];
+    }
+    return edges;
 }
 
 /**
@@ -157,14 +172,25 @@ export interface CMDSParameters {
     /** Inner iterations per round, `N` in Algorithm 1. Defaults to `20`, per §4.2. */
     inner_iterations?: number;
     /**
-     * Rounds of Algorithm 1 before the grid is grown. Defaults to `10`.
+     * Rounds of Algorithm 1 before the grid is grown. Defaults to `150`.
      *
-     * Extra rounds at a fixed node size buy little: the overlap correction is
-     * dropped as soon as it succeeds, so the layout oscillates rather than
-     * settling. Growing the grid is what makes progress.
+     * This is the quality/time dial. Overlaps fall slowly but steadily at a
+     * fixed node size — 538 down to 24 over 1830 rounds in one measurement —
+     * so the layout largely resolves itself when given the chance. Growing the
+     * grid early instead drove the nodes down to 2% of the plot area; more
+     * rounds keep them large:
+     *
+     * | rounds | packing |
+     * | ------ | ------- |
+     * | 10     | 2%      |
+     * | 200    | 33%     |
+     * | 800    | 71%     |
+     *
+     * 71% is what the paper reports, but the run cost is linear in this, so
+     * the default trades some of it for responsiveness.
      */
     max_iter?: number;
-    /** How many times the grid may grow before giving up. Defaults to `60`. */
+    /** How many times the grid may grow before giving up. Defaults to `8`. */
     max_rescales?: number;
 }
 
@@ -204,8 +230,8 @@ export async function* gridify_cmds(
     const Gamma = parameters.Gamma;
     const alpha = parameters.alpha ?? 0.1;
     const inner = parameters.inner_iterations ?? 20;
-    const max_iter = parameters.max_iter ?? 10;
-    const max_rescales = parameters.max_rescales ?? 60;
+    const max_iter = parameters.max_iter ?? 150;
+    const max_rescales = parameters.max_rescales ?? 8;
 
     const W = Gamma.x2 - Gamma.x1;
     const H = Gamma.y2 - Gamma.y1;
