@@ -36,8 +36,8 @@ export interface GridifyParameters {
     whitespace?: number;
     /** `hilbert`: preserves the data's aspect ratio. */
     keep_aspect_ratio?: boolean;
-    /** `gosper`: shrinks the target extent to fit the Gosper island. */
-    scale_factor?: number;
+    /** `gosper`: which way up the hexagons sit. Defaults to `"flat"`. */
+    orientation?: import("./types.js").HexOrientation;
     /** `dgrid`: cell aspect ratio. Defaults to `1`. */
     aspect_ratio?: number;
     /** `dgrid`: explicit grid dimensions, overriding `aspect_ratio`. */
@@ -115,7 +115,7 @@ export function gridify(
             const pluslevel = parameters.pluslevel ?? 0;
             const level = Math.ceil(Math.log2(data.length) / Math.log2(7) + 1) + pluslevel;
             return timed(() =>
-                gridify_gosper(data, { level, scale_factor: parameters.scale_factor }),
+                gridify_gosper(data, { level, orientation: parameters.orientation }),
             );
         }
         case "dgrid": {

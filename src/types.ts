@@ -26,3 +26,13 @@ export interface Region {
 
 /** Maps a datum to a scalar, used to read out one dimension of a point. */
 export type Accessor<T = Point> = (d: T) => number;
+
+/**
+ * Which way up the hexagons sit.
+ *
+ * `"pointy"` puts a vertex at the top and neighbours at multiples of 60°;
+ * `"flat"` puts an edge at the top and neighbours at 30° off those. The two
+ * lattices are the same lattice turned by 30°, so switching rotates the whole
+ * grid and leaves the curve's cell ordering identical.
+ */
+export type HexOrientation = "pointy" | "flat";

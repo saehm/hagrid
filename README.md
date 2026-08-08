@@ -44,7 +44,7 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 | name | description | parameters |
 | ---- | ---- | ---- |
 | `hilbert` | uses the Hilbert curve, produces rectangular grid cells | `pluslevel` (default `0`), `whitespace` (default `1`), `keep_aspect_ratio` |
-| `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `scale_factor` (default `0.8`) |
+| `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `orientation` (default `"flat"`) |
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
 | `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter` |
 | `nmap` | a space filling treemap approach | `BB`, `squared` |
@@ -63,12 +63,12 @@ for await (const [layout, proximity_graph] of steps) {
 
 ## Migrating from 0.1.x
 
-`0.2.0` is the first release since the library was ported to TypeScript. The layouts produced by `hilbert`, `dgrid` and `nmap` are unchanged — they are pinned by fixtures captured from `0.1.1` — but the surrounding API changed:
+`0.3.0` is the first release since the library was ported to TypeScript. The layouts produced by `hilbert`, `dgrid` and `nmap` are unchanged — they are pinned by fixtures captured from `0.1.1` — but the surrounding API changed:
 
 - **`gridify` returns `{ positions, runtime }`** instead of an array with a `runtime` property bolted on. Replace `const result = gridify(...)` with `const { positions } = gridify(...)`.
 - **`gridify(data, "cmds", …)` returns `{ steps }`**, an async generator. Previously it returned a generator that could not complete: the final proximity graph was constructed with the wrong arity, so the grid-snapped layout always threw before reaching the caller.
 - **`gridify(data, "gosper", …)` works without an explicit `pluslevel`.** It previously read an absent `pluslevel` and computed a `NaN` curve level.
-- **The two Gosper implementations no longer collide.** `gosper.js` and `gosper2.js` both exported `gosper_encode`, `gosper_decode` and `gridify_gosper`, and which one you got depended on whether you called the export directly or went through `gridify`. The direct-indexing variant of Uher et al. is now exported under its own names — `gridify_gosper_uher`, `gosper_uher_encode`, `gosper_uher_decode`, `gosper_uher_size` — and is **known to produce incorrect coordinates**; prefer `gridify_gosper`.
+- **There is now one Gosper implementation.** `gosper.js` and `gosper2.js` both exported `gosper_encode`, `gosper_decode` and `gridify_gosper`, and which one you got depended on whether you called the export directly or went through `gridify`. The curve-building one has been removed in favour of the direct indexing of Uher et al., which keeps the plain names — `gosper_encode`, `gosper_decode`, `gosper_size`, `gosper_curve`, `gridify_gosper`. Layouts differ from `0.1.x`. `scale_factor` is gone (the fit is isotropic now); `orientation` replaces it. `gosper_encode` returns `-1` outside the island, and `CurveIndex` is gone with the scan it existed to accelerate.
 - **`gridify_gridfit` returns `{ nodes, final, leftovers, error }`** and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
@@ -84,8 +84,113 @@ pnpm build
 
 The fixtures in `test/__goldens__/` were captured from the `0.1.1` bundle. A test failing there means the port drifted; re-record only for a deliberate, explained behaviour change.
 
+## Performance
+
+Both curve implementations were rebuilt around not allocating. `rotate()` used to return a fresh
+`[x, y]` array on every level of every call, which dominated everything else:
+
+| | before | after |
+| ---- | ---- | ---- |
+| `hilbert_encode` | 0.12 M/s | **10.1 M/s** |
+| `hilbert_decode` | 1.88 M/s | 2.02 M/s |
+| `gosper_encode` | — | 6.6 M/s |
+| `gosper_decode` | — | 8.8 M/s |
+
+End to end, `gosper` no longer builds the curve at all:
+
+| N | before (curve + index) | after (direct) |
+| ---- | ---- | ---- |
+| 5 000 | 80 ms | 7 ms |
+| 20 000 | 510 ms | 14 ms |
+| 50 000 | 1 047 ms | 33 ms |
+| 200 000 | 21 197 ms | **192 ms** |
+
+`hilbert_encode`/`hilbert_decode` also no longer corrupt silently above level 15. The index was
+passed through `>>` and `&`, which coerce to 32 bits, so a level-16 grid returned wrong
+coordinates with no error. The index is now kept in floating point — exact to 2^53, i.e. level 26
+— and anything beyond that, or a non-power-of-two size, is rejected outright.
+
+## The Gosper implementation
+
+There used to be two, and they collided (see *Migrating* above). The survivor is the direct
+indexing of Uher et al., which computes a curve index arithmetically in `O(level)` and never
+materializes anything. The other built the whole curve as an L-system and matched points against
+it; it was dropped because it lost on every axis measured — 110x slower end to end, `O(7^level)`
+memory, it threw on collinear input, and it was not even faster at producing the full curve for
+drawing (17.7 ms vs 10.7 ms at level 6).
+
+The one thing it did differently was semantics for points outside the island: it snapped them to
+the nearest cell, where `gosper_encode` returns `-1`. Inside the island the two rules agree
+exactly — verified on thousands of sampled points at levels 2 to 4 — so this only matters when
+indexing arbitrary points, not when gridding a dataset.
+
+### Getting it working
+
+The direct implementation never worked. `decode` was always correct, but only 1 index in `7^level`
+survived a `decode → encode` round trip. Two independent faults in the localization step (paper
+Algorithm 1), where fixing either alone changes nothing — the round trip stays at 14% or 0%:
+
+1. **`xy2cube` was not the inverse of `cube2xy`.** It used a *pointy-topped* hexagon convention
+   while `cube2xy`, and therefore all of `decode`, is *flat-topped*. The two disagreed about the
+   lattice itself.
+2. **`B()` inverted the sign test on all three axes** relative to paper eq. (16), which specifies
+   `x` dominant and `x < 0 → 2`, `x > 0 → 5`, likewise `y` and `z`. Its threshold was also
+   `10e-3` where the paper gives `1e-5`.
+
+Structurally, the loop also walked xy space applying cumulative `1/√7^i` scalings and `-α·i`
+rotations, where the paper applies one constant matrix `T = [[2/7, -1/7], [1/7, 3/7]]` (eq. 13) to
+*axial* coordinates, repeatedly. The file already contained a commented-out `transform()` that was
+exactly this matrix — the correct approach had been written, then abandoned for the broken one.
+
+Algorithm 2 (index conversion) was already correct, including its `E(P2, ·) = [4,0,1,2,3,6,5]`
+transfer table, which matches the paper's Table 1. `encode` now inverts `decode` exactly at every
+level tested — all 16 807 indices at level 5.
+
+### Points outside the island
+
+The climb records only each hexagon's position *relative to its parent* and never checks which
+root island it ended in, so an outside point used to fold onto an arbitrary interior cell, very
+often one at the opposite end of the curve. A contained point always finishes on the root hexagon
+`(0, 0)`, so `gosper_encode` returns `-1` for anything else.
+
+That exposed a larger bug: **the island is centred on the origin, but `gridify_gosper` never moved
+the data there.** `gosper_size` scales the island so the data's bounding circle fits inside its
+inscribed circle, which only holds about a shared centre. For ordinary data like `[0,100]²`,
+centred at `(50,50)`, most points sat off the tile — 26 112 of 48 000 measured across square,
+wide, degenerate-line and clustered inputs. It now centres the data and shifts the result back,
+and the same measurement gives zero.
+
+The discarded `(q, l)` is in fact the *island address*, so the scheme extends over the whole
+plane: islands tile by translation (forced, since `T` is linear), and
+
+```
+global_position(island, index) = decode(index) + rotate(cube2xy(island, size·√7^level), −level·α)
+```
+
+reconstructs any cell — verified across ~50 islands out to six island widths. That is an unbounded
+addressing scheme rather than a single global ordering, and it is not currently exposed as API.
+
+## Hexagon orientation
+
+`"pointy"` puts neighbours at multiples of 60°, `"flat"` at 30° off those. They are the same
+lattice turned by 30° — the basis sends axial `(1,0)` to 0° and 30° respectively, at equal length:
+
+```js
+hagrid.gosper_curve(level, "pointy");
+hagrid.gridify_gosper(data, { level, orientation: "pointy" });
+hagrid.gosper_encode(p, level, size, "pointy");
+```
+
+The default is `"flat"`, the paper's own lattice. Because the rotation is rigid, cell ordering and
+step length are unchanged and indexing round-trips exactly in either orientation. Note that
+switching turns the lattice *underneath* the data rather than carrying each point to a matching
+cell, so points are reassigned — that is usually the point of the option.
+
 ## Known issues
 
-- `gridify_gosper_uher` does not yet reproduce `gridify_gosper`'s coordinates.
+- Neither curve method preserves the data's aspect ratio for elongated inputs. On a 1000x10
+  dataset the output comes back at aspect 2.8 rather than 100, because the island is fitted
+  isotropically and collisions then spread points outward. A rectangle-aware fit — or a
+  generalized rectangular curve — would be the real fix.
 - `nmap`'s internal `sizes()` splits a region using the first half's point count for both halves, so subdivisions are not proportional. Preserved for now because fixing it changes every `nmap` output.
 - `gridfit` runs but has not been validated against its paper.

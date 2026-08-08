@@ -1,6 +1,6 @@
 {
     "name": "@saehrimnir/hagrid",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Removes overlaps in scatterplots using space filling curves.",
     "keywords": [
         "scatterplot",

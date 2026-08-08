@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { gridify } from "../src/gridify.js";
-import { gosper_curve, gridify_gosper } from "../src/gosper.js";
+import { gosper_curve, gosper_decode, gosper_size, gridify_gosper } from "../src/gosper.js";
 import { gridify_gridfit } from "../src/gridfit.js";
 import { version } from "../src/main.js";
 import type { CMDSStep } from "../src/cmds.js";
@@ -85,10 +85,24 @@ describe("gosper", () => {
     });
 
     it("places points on actual curve cells", () => {
-        const cells = new Set(gosper_curve(4).map((p) => p.join(",")));
-        const positions = gridify_gosper(ring(60), { level: 4 });
+        // gridify fits the island to the data and recentres it, so build the
+        // comparison set the same way rather than from the unit-size curve.
+        const data = ring(60);
+        const level = 4;
+        const size = gosper_size(data, level);
+        const xs = data.map((d) => d[0]);
+        const ys = data.map((d) => d[1]);
+        const mid_x = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const mid_y = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const cells = new Set<string>();
+        for (let t = 0; t < 7 ** level; ++t) {
+            const [x, y] = gosper_decode(t, level, size);
+            cells.add([x + mid_x, y + mid_y].map((v) => v.toFixed(6)).join(","));
+        }
+
+        const positions = gridify_gosper(data, { level });
         for (const p of positions) {
-            expect(cells.has(p.join(","))).toBe(true);
+            expect(cells.has(p.map((v) => v.toFixed(6)).join(","))).toBe(true);
         }
     });
 });
