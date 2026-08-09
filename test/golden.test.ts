@@ -1,14 +1,17 @@
 /**
- * Verifies the TypeScript port against outputs captured from the pre-migration
- * JavaScript bundle (v0.1.x). Any difference here is a regression in the port,
- * not a change in taste — deliberate behaviour changes must re-record the
- * fixtures and say why in the commit.
+ * Holds `hilbert` and `dgrid` to the output of the pre-migration JavaScript
+ * bundle, byte for byte. This started as a check that the TypeScript port had
+ * not drifted; that job is done, but the README promises upgraders that those
+ * two methods lay out identically to `0.1.1`, and this is what keeps the
+ * promise true.
  *
- * `hilbert` and `dgrid` are still pinned to the original v0.1.1 output. The
- * `nmap` entries were re-recorded when `sizes()` was fixed: it had been giving
- * the first half's share to both halves, leaving up to 38% of the plotting
- * area as gaps. Those entries carry a `rerecorded` note, and the tiling
- * property that replaced them is checked directly in `nmap.test.ts`.
+ * A failure is therefore a compatibility break, not a bug per se. Re-record
+ * only for a deliberate change, and say why in the commit.
+ *
+ * The `nmap` entries no longer pin `0.1.1`: they were re-recorded when
+ * `sizes()` was fixed, and so only pin our own output. They carry a
+ * `rerecorded` note. The properties that actually matter for nmap — a complete
+ * tiling, no overlaps, containment — are checked directly in `nmap.test.ts`.
  */
 import { describe, expect, it } from "vitest";
 

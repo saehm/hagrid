@@ -112,7 +112,7 @@ pnpm typecheck
 pnpm build
 ```
 
-The fixtures in `test/__goldens__/` were captured from the `0.1.1` bundle. A test failing there means the port drifted; re-record only for a deliberate, explained behaviour change.
+The fixtures in `test/__goldens__/` hold `hilbert` and `dgrid` to the `0.1.1` bundle's output byte for byte, which is what backs the compatibility claim above. A failure there is a break for upgraders; re-record only for a deliberate, explained change. The `nmap` entries were re-recorded when `sizes()` was fixed and no longer pin `0.1.1`.
 
 ## Performance
 
