@@ -137,23 +137,26 @@ function sizes(Da: FillerPoint[], Db: FillerPoint[], size: number): Point {
     return [(pA / total) * size, (pB / total) * size];
 }
 
-/**
- * The region a run should fill: the data's bounding box, or the smallest
- * square containing it when `squared` is asked for.
- *
- * Padding the point set alone does not square anything — the layout's shape
- * follows the region it is given, so the region has to be square too.
- */
+/** The region a run should fill: the data's bounding box unless one is given. */
 function region_for(D: readonly Point[], parameters: NMapParameters): Bounds {
-    if (parameters.BB) return parameters.BB;
-    const bb = get_bounds(D);
-    if (parameters.squared !== true) return bb;
-    const side = Math.max(bb.width, bb.height);
-    return {
-        x: bb.x + bb.width / 2 - side / 2,
-        y: bb.y + bb.height / 2 - side / 2,
-        width: side,
-        height: side,
+    return parameters.BB ?? get_bounds(D);
+}
+
+/**
+ * mulberry32, seeded per call.
+ *
+ * The reference jitters its candidate positions with `Math.random`, which makes
+ * a run unreproducible — the same input gave three different layouts across
+ * five calls. The placement rule is unchanged; only the source of randomness
+ * is. This is a deliberate deviation, so that a measurement can be repeated.
+ */
+function jitter(seed: number): () => number {
+    let s = seed >>> 0;
+    return () => {
+        s = (s + 0x6d2b79f5) | 0;
+        let t = Math.imul(s ^ (s >>> 15), 1 | s);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 }
 
@@ -161,9 +164,17 @@ function region_for(D: readonly Point[], parameters: NMapParameters): Bounds {
  * Pads the point set with synthetic border points until it fills a square
  * grid, after https://github.com/sebastian-meier/nmap-squared.js
  *
- * Note: uses `Math.random`, so results are not reproducible run to run.
+ * This is the reference's "border" method: normalise into the region keeping
+ * the data's aspect, lay candidates along the perimeter, and repeatedly take
+ * whichever sits furthest from anything already placed. The fillers carry no
+ * index and are dropped from the output, so they show as empty cells.
+ *
+ * Note that this pads the point *count* to a square number. It does not make
+ * the cells square — their aspect follows the region, which keeps the data's
+ * shape. See the README.
  */
 function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): FillerPoint[] {
+    const random = jitter(D.length * 2654435761);
     const BB2 = get_bounds(D as unknown as Point[]);
     let sx = width / BB2.width;
     let sy = height / BB2.height;
@@ -183,13 +194,13 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
     // top and bottom border
     for (let x = 0; x <= grid_size - ep_num; x += ep_num) {
         extra.push([
-            ((width * sx) / grid_size) * x + ep_num * Math.random(),
-            ep_num * Math.random(),
+            ((width * sx) / grid_size) * x + ep_num * random(),
+            ep_num * random(),
             undefined,
         ] as FillerPoint);
         extra.push([
-            ((width * sx) / grid_size) * x + ep_num * Math.random(),
-            height * sy + 1 + ep_num * Math.random(),
+            ((width * sx) / grid_size) * x + ep_num * random(),
+            height * sy + 1 + ep_num * random(),
             undefined,
         ] as FillerPoint);
     }
@@ -197,13 +208,13 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
     // left and right border
     for (let y = 0; y <= grid_size - ep_num; y += ep_num) {
         extra.push([
-            ep_num * Math.random(),
-            ((height * sy) / grid_size) * y + ep_num * Math.random(),
+            ep_num * random(),
+            ((height * sy) / grid_size) * y + ep_num * random(),
             undefined,
         ] as FillerPoint);
         extra.push([
-            width * sx + 1 + ep_num * Math.random(),
-            ((height * sy) / grid_size) * y + ep_num * Math.random(),
+            width * sx + 1 + ep_num * random(),
+            ((height * sy) / grid_size) * y + ep_num * random(),
             undefined,
         ] as FillerPoint);
     }

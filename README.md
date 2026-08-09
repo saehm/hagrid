@@ -268,6 +268,49 @@ counts, scores, rounded measurements — commonly trips it. Jitter the input sli
 A real fix would fall back to a proportional split when a region is degenerate, placing tied points
 in adjacent cells. That is not done yet.
 
+### `squared`
+
+`squared` is a port of [nmap-squared.js](https://github.com/sebastian-meier/nmap-squared.js). It
+normalises the points into the region keeping the data's aspect, then pads the set to a square
+*number* of points — `grid_size = ceil(ceil(sqrt(n)) / 4) * 4` — by laying candidate fillers along
+the perimeter and repeatedly taking whichever sits furthest from anything already placed. The
+fillers carry no index and are dropped from the output, so they show up as empty cells.
+
+Two defects were fixed, both in our port rather than in the reference. `calcDist` never initialised
+`a.dist`, so every `t_dist < a.dist` was false, nothing was ranked and the comparator returned
+`NaN`; and the caller peeked at the pool instead of removing the chosen candidate, so it appended
+the same point once per missing cell. A pile of identical points has no extent to subdivide, so the
+run threw whenever fillers were genuinely needed and did nothing when they were not — at N = 400
+the count is already a perfect square, which is why it ever appeared to work.
+
+**The name promises more than the method delivers**, and this is a property of the technique rather
+than a bug. Padding the *count* to a square number does not make the *cells* square: their aspect
+follows the region, which keeps the data's shape.
+
+Measured at N = 300, against a transcription of the reference for comparison:
+
+| data | ours | reference, `square: true` | reference, `square: false` |
+| ---- | ---- | ---- | ---- |
+| square | 2.33:1 | 2.33:1 | 1.80:1 |
+| 4:1 wide | 9.33:1 | 9.15:1 | 4.89:1 |
+| 20:1 wide | 46.64:1 | 41.50:1 | 22.19:1 |
+
+Cell areas are uniform to 0.0% in every column — equal area, not equal shape. Cells are square only
+when the data is. If you need a regular lattice regardless of the data's shape, that is what
+`hilbert`, `gilbert`, `dgrid` and `gosper` are for; comparing against them is the point of having
+`nmap` here.
+
+Note which column we are in. The reference takes a `square` flag that rounds the grid up to a
+multiple of 4, and it defaults to **false**; `0.1.1` hardcoded the `true` branch, and this port kept
+that. The remaining difference within that column is the filler jitter. The `false` variant asks for
+fewer fillers — `ceil(sqrt(n))` rather than a multiple of 4 — and scores better on every input here,
+so it is worth exposing if the comparison should cover both.
+
+One deliberate deviation: the reference jitters its filler positions with `Math.random`, so the
+same input gave three different layouts across five calls. Ours seeds a generator instead. The
+placement rule is untouched; only the source of randomness is, so that a measurement can be
+repeated.
+
 ## CMDS convergence
 
 `cmds` never terminated: it burned every iteration on every input and then threw. Beyond the arity

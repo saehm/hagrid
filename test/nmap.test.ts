@@ -149,6 +149,14 @@ describe("nmap rejects degenerate subdivisions instead of returning NaN", () => 
         expect(() => gridify_nmap(uniform(300, 42))).not.toThrow();
     });
 
+    it("squared pads the count, so degenerate input still throws", () => {
+        // Padding does not give a region spread it did not have. Recorded so
+        // that `squared` is not mistaken for a way around this.
+        expect(() => gridify_nmap(degenerate["vertical line"], { squared: true })).toThrow(
+            /cannot subdivide/,
+        );
+    });
+
     it("never returns a non-finite position when it does not throw", () => {
         for (let seed = 0; seed < 40; ++seed) {
             const data = uniform(50 + seed, seed * 31 + 1);
@@ -162,5 +170,65 @@ describe("nmap rejects degenerate subdivisions instead of returning NaN", () => 
                 expect(Number.isFinite(x) && Number.isFinite(y)).toBe(true);
             }
         }
+    });
+});
+
+/**
+ * `squared` is a port of nmap-squared.js: it pads the point set to a square
+ * *number* of points with border fillers, so the treemap has a full grid to
+ * subdivide. It does not make the cells square — their aspect follows the
+ * region, which keeps the data's shape.
+ *
+ * The point of these tests is fidelity to that method, not squareness. Two
+ * defects in our port are pinned here so they cannot come back: `calcDist`
+ * never initialised `a.dist`, so nothing was ever ranked, and the caller
+ * peeked at the pool instead of removing the chosen candidate, so it appended
+ * the same point once per missing cell.
+ */
+describe("nmap squared follows nmap-squared.js", () => {
+    // grid_size = ceil(ceil(sqrt(n)) / 4) * 4, so the padded count is its
+    // square. N=400 needs no fillers at all; the others do.
+    const padded = (n: number) => Math.pow(Math.ceil(Math.ceil(Math.sqrt(n)) / 4) * 4, 2);
+
+    for (const n of [40, 300, 400, 500]) {
+        it(`N=${n}: places every real point, fillers dropped`, () => {
+            const cells = nmap_regions(uniform(n, n * 3), { squared: true });
+            expect(cells).toHaveLength(n);
+            for (const c of cells) {
+                expect(Number.isFinite(c.x) && Number.isFinite(c.y)).toBe(true);
+            }
+        });
+
+        it(`N=${n}: fillers actually get placed (${padded(n) - n} of them)`, () => {
+            // The layout must differ from the unpadded one whenever fillers are
+            // needed — the old port silently did nothing in that case.
+            const data = uniform(n, n * 3);
+            const plain = JSON.stringify(gridify_nmap(data));
+            const sq = JSON.stringify(gridify_nmap(data, { squared: true }));
+            if (padded(n) > n) expect(sq).not.toBe(plain);
+        });
+    }
+
+    it("is reproducible across identical calls", () => {
+        // A deliberate deviation: the reference jitters with Math.random and
+        // returned three different layouts across five calls.
+        const data = uniform(250, 11);
+        const first = JSON.stringify(gridify_nmap(data, { squared: true }));
+        for (let k = 0; k < 4; ++k) {
+            expect(JSON.stringify(gridify_nmap(data, { squared: true }))).toBe(first);
+        }
+    });
+
+    it("leaves the region's aspect alone", () => {
+        // Squaring the region was our addition, not the reference's. A wide
+        // input must stay wide.
+        const data = uniform(300, 9).map(([x, y]) => [x * 8, y] as Point);
+        const cells = nmap_regions(data, { squared: true });
+        let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+        for (const c of cells) {
+            x0 = Math.min(x0, c.x); x1 = Math.max(x1, c.x + c.width);
+            y0 = Math.min(y0, c.y); y1 = Math.max(y1, c.y + c.height);
+        }
+        expect((x1 - x0) / (y1 - y0)).toBeGreaterThan(4);
     });
 });
