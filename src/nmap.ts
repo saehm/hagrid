@@ -6,7 +6,10 @@ import type { Bounds, Point } from "./types.js";
  * case its index slot is `undefined`. `dist` caches the nearest-neighbour
  * distance used to rank candidates.
  */
-type FillerPoint = [number, number, number | undefined] & { dist?: number };
+type FillerPoint = [number, number, number | undefined] & {
+    dist?: number;
+    seen?: number;
+};
 
 /** A rectangle in the subdivision, once assigned, carries its point. */
 type Tile = Bounds & { d?: FillerPoint };
@@ -51,7 +54,12 @@ function nmap(G: Tile[], P: FillerPoint[], R: Tile, direction = true): void {
         G.push(R);
     } else {
         const dim = direction ? 0 : 1;
-        P = P.sort((a, b) => b[dim] - a[dim]);
+        // Ascending: `Da` is handed to `Ra`, the low side of the cut, so it has
+        // to hold the low coordinates. Sorting the other way flips the axis at
+        // every split, and since the recursion alternates axes the whole layout
+        // comes back point-mirrored — correlation with the input about -0.93 on
+        // both axes, and every point thrown across the plot.
+        P = P.sort((a, b) => a[dim] - b[dim]);
         const [Da, Db] = split(P, N_half);
         const Ra: Tile = Object.assign({}, R);
         const Rb: Tile = Object.assign({}, R);
@@ -169,9 +177,16 @@ function jitter(seed: number): () => number {
  * whichever sits furthest from anything already placed. The fillers carry no
  * index and are dropped from the output, so they show as empty cells.
  *
- * Note that this pads the point *count* to a square number. It does not make
- * the cells square — their aspect follows the region, which keeps the data's
- * shape. See the README.
+ * `grid_size` is rounded up to a power of two rather than to a multiple of
+ * four as the reference does, so that `grid_size²` is a power of two as well.
+ * The subdivision halves a region's point count at each step; while the count
+ * stays even both halves are equal and every cut falls on the same lines, but
+ * the first odd count splits unevenly and nothing below it lines up again.
+ * A multiple of four is not enough — 20² = 400 reaches 25 and breaks — so this
+ * is what makes the cells uniform. It costs up to four times as many cells.
+ *
+ * Uniform cells are not square cells: their aspect is the region's, so they are
+ * square when the region is.
  */
 function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): FillerPoint[] {
     const random = jitter(D.length * 2654435761);
@@ -184,7 +199,7 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
         sx = sy;
     }
     D = D.map(([x, y, i]) => [(x - x0) * sx + 1, (y - y0) * sy + 1, i] as FillerPoint);
-    const grid_size = Math.ceil(Math.ceil(Math.sqrt(D.length)) / 4) * 4;
+    const grid_size = Math.pow(2, Math.ceil(Math.log2(Math.ceil(Math.sqrt(D.length)))));
     const sq_amount = Math.pow(grid_size, 2);
     let sq_missing = sq_amount - D.length;
     const ep_num = 1 / sq_missing;
@@ -220,28 +235,53 @@ function squared(D: FillerPoint[], { x: x0, y: y0, width, height }: Bounds): Fil
     }
 
     while (sq_missing > 0 && extra.length > 0) {
-        extra = calcDist(extra, D);
-        // Take the candidate in the emptiest space, and take it *out* of the
-        // pool: peeking would append the same point every iteration.
-        D.push(extra.pop() as FillerPoint);
+        calcDist(extra, D);
+        // The candidate in the emptiest space is the one furthest from anything
+        // already placed — the same one the reference reaches by sorting and
+        // taking the last, found without paying to order the other 90-odd
+        // thousand. It then has to leave the pool: peeking would append the
+        // same point once per missing cell.
+        let best = 0;
+        for (let i = 1; i < extra.length; ++i) {
+            if ((extra[i].dist as number) > (extra[best].dist as number)) best = i;
+        }
+        D.push(extra[best]);
+        extra[best] = extra[extra.length - 1];
+        extra.pop();
         --sq_missing;
     }
 
+    // The reference hands back `swidth*sx + 2` x `sheight*sy + 2` — the scaled
+    // data plus the margin the fillers sit in — for the caller to subdivide,
+    // where this subdivides the caller's bounding box instead. The frames
+    // differ by the one-unit offset, which biases the split slightly. Adopting
+    // the reference's rectangle is not obviously an improvement: its margin
+    // gives a degenerate axis artificial extent, so a vertical line stops
+    // throwing and comes back with two of four points sharing a cell. Left as
+    // is, and recorded in the README.
     return D;
 }
 
 /**
- * Ranks candidates in `A` by distance to the nearest point of `B`, farthest
- * last — so the tail of the list is the emptiest space.
+ * Measures each candidate in `A` against the nearest point of `B`, leaving the
+ * result in `dist`. The largest is the emptiest space.
  *
  * `dist` carries across calls on purpose: `B` only grows, so the nearest
- * distance only shrinks, and the running minimum stays correct.
+ * distance only shrinks, and the running minimum stays correct. `seen` records
+ * how much of `B` a candidate has already been measured against, so each call
+ * only looks at what was appended since — the minimum cannot be changed by a
+ * point that was already folded into it.
+ *
+ * That, and picking the maximum instead of sorting, is what makes a
+ * power-of-two grid affordable: at N = 300 it is 724 fillers chosen from ~92k
+ * candidates, where the reference would rescan and re-sort all of them every
+ * round. The choice is unchanged; only the work to reach it is.
  */
-function calcDist(A: FillerPoint[], B: FillerPoint[]): FillerPoint[] {
+function calcDist(A: FillerPoint[], B: FillerPoint[]): void {
     for (let i = 0; i < A.length; ++i) {
         const a = A[i];
         if (a.dist === undefined) a.dist = Infinity;
-        for (let j = 0; j < B.length; ++j) {
+        for (let j = a.seen ?? 0; j < B.length; ++j) {
             const b = B[j];
             let t_dist = Math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2);
             if (b[2] === undefined) {
@@ -251,8 +291,8 @@ function calcDist(A: FillerPoint[], B: FillerPoint[]): FillerPoint[] {
                 a.dist = t_dist;
             }
         }
+        a.seen = B.length;
     }
-    return A.sort((a, b) => (a.dist as number) - (b.dist as number));
 }
 
 /** Parameters for {@link gridify_nmap}. */
@@ -307,14 +347,7 @@ export function gridify_nmap(
     D: readonly Point[],
     parameters: NMapParameters = {},
 ): Point[] {
-    const G: Tile[] = [];
-    const BB = region_for(D, parameters);
-    let added_index: FillerPoint[] = D.map(([x, y], i) => [x, y, i] as FillerPoint);
-    if (parameters.squared === true) {
-        added_index = squared(added_index, BB);
-    }
-    nmap(G, added_index, { ...BB }, false);
-    return G.filter((d) => d.d![2] !== undefined)
-        .sort((a, b) => (a.d![2] as number) - (b.d![2] as number))
-        .map(({ x, y, width, height }) => [x + width / 2, y + height / 2] as Point);
+    return nmap_regions(D, parameters).map(
+        ({ x, y, width, height }) => [x + width / 2, y + height / 2] as Point,
+    );
 }

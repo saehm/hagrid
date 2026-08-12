@@ -84,7 +84,7 @@ step();
 
 ## Migrating from 0.1.x
 
-`0.3.0` is the first release since the library was ported to TypeScript. The layouts produced by `hilbert`, `dgrid` and `nmap` are unchanged — they are pinned by fixtures captured from `0.1.1` — but the surrounding API changed:
+`0.3.0` is the first release since the library was ported to TypeScript. The layouts produced by `hilbert` and `dgrid` are unchanged — they are pinned by fixtures captured from `0.1.1` — but `nmap`'s changed for the reasons below, and the surrounding API changed too:
 
 - **`gridify` returns `{ positions, runtime }`** instead of an array with a `runtime` property bolted on. Replace `const result = gridify(...)` with `const { positions } = gridify(...)`.
 - **`gridify(data, "cmds", …)` returns `{ steps }`**, a generator. Previously it returned a generator that could not complete: the final proximity graph was constructed with the wrong arity, so the grid-snapped layout always threw before reaching the caller.
@@ -93,6 +93,7 @@ step();
 - **`gridify_gridfit` returns `Point[]`** like every other method, and actually runs. It previously referenced an unimported `d3` and threw a `ReferenceError` immediately.
 - **`gosper` uses far fewer cells.** The level formula added 1 on top of `log7(N)`, multiplying the cell count by seven — 28x more cells than points at N = 600. It now takes `whitespace` like `hilbert`.
 - **`nmap`'s `squared` option works.** It threw whenever filler points were actually needed, and did nothing when they were not.
+- **`nmap` layouts are no longer point-mirrored.** The subdivision sorted each region's points in descending order but handed the first half — the *high* coordinates — to the low side of the cut. Every split flipped its axis, and since the recursion alternates axes the layout came back rotated 180°. Correlation with the input was about −0.93 on both axes, against +0.99 after the fix, and mean displacement fell from 24 cells to 1.2. `0.1.1` did the same, so `nmap` output differs from it.
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
 - **`cmds`'s `Gamma` is a `Bounds`** — `{x, y, width, height}` — rather than the corner form `{x1, x2, y1, y2}`. The `Region` type is gone; `get_bounds(data)` can now be passed straight in.
@@ -272,6 +273,27 @@ The rectangles are now available directly, which is what you want for drawing a 
 const cells = hagrid.nmap_regions(data);   // [{ x, y, width, height, index }, ...]
 ```
 
+### The layout used to come back rotated 180°
+
+Each region sorted its points along the split axis and gave the first half to `Ra`, the *low* side
+of the cut — but the sort was descending, so the first half held the *high* coordinates. The
+boundary itself was computed correctly, as the midpoint between the two groups; only the assignment
+was crossed. Every split therefore flipped its axis, and because the recursion alternates axes both
+ended up flipped:
+
+| data | correlation before | after |
+| ---- | ---- | ---- |
+| gaussian, N=300 | −0.78 x, −0.93 y | **+0.83 x, +0.98 y** |
+| uniform, N=1000 | −0.93 x, −0.93 y | **+1.00 x, +1.00 y** |
+
+Correlation is between each point's input and output coordinate; −1 is a mirror, +1 is faithful.
+Mean displacement fell from 24.0 cells to 1.2 at N = 1000. The layout was internally consistent —
+neighbours stayed neighbours, which is the property N-Map optimises, and a point reflection
+preserves it — so nothing in the paper's own quality measure would catch this.
+
+`0.1.1` had the same bug, so `nmap` output differs from it and the four `nmap` fixtures are
+re-recorded.
+
 ### nmap needs spread on both axes
 
 `nmap` cuts a region at the midpoint between the two halves of its points. If every point in that
@@ -301,9 +323,9 @@ in adjacent cells. That is not done yet.
 
 `squared` is a port of [nmap-squared.js](https://github.com/sebastian-meier/nmap-squared.js). It
 normalises the points into the region keeping the data's aspect, then pads the set to a square
-*number* of points — `grid_size = ceil(ceil(sqrt(n)) / 4) * 4` — by laying candidate fillers along
-the perimeter and repeatedly taking whichever sits furthest from anything already placed. The
-fillers carry no index and are dropped from the output, so they show up as empty cells.
+*number* of points by laying candidate fillers along the perimeter and repeatedly taking whichever
+sits furthest from anything already placed. The fillers carry no index and are dropped from the
+output, so they show up as empty cells.
 
 Two defects were fixed, both in our port rather than in the reference. `calcDist` never initialised
 `a.dist`, so every `t_dist < a.dist` was false, nothing was ranked and the comparator returned
@@ -312,33 +334,50 @@ the same point once per missing cell. A pile of identical points has no extent t
 run threw whenever fillers were genuinely needed and did nothing when they were not — at N = 400
 the count is already a perfect square, which is why it ever appeared to work.
 
-**The name promises more than the method delivers**, and this is a property of the technique rather
-than a bug. Padding the *count* to a square number does not make the *cells* square: their aspect
-follows the region, which keeps the data's shape.
+#### Getting a lattice out of it
 
-Measured at N = 300, against a transcription of the reference for comparison:
+Padding to a full grid is not by itself enough to make the cells uniform. The subdivision halves a
+region's point count at each step: while the count stays even both halves are equal and every cut
+falls on the same lines, but the first *odd* count splits unevenly and nothing below it lines up
+again. So the cells are uniform exactly when the padded count is a power of two.
 
-| data | ours | reference, `square: true` | reference, `square: false` |
-| ---- | ---- | ---- | ---- |
-| square | 2.33:1 | 2.33:1 | 1.80:1 |
-| 4:1 wide | 9.33:1 | 9.15:1 | 4.89:1 |
-| 20:1 wide | 46.64:1 | 41.50:1 | 22.19:1 |
+The reference rounds `grid_size` up to a multiple of four, which is not sufficient — 20² = 400
+reaches 25 and breaks, giving seven distinct cell widths at N = 300. This port rounds up to a power
+of two instead, so `grid_size²` is one too:
 
-Cell areas are uniform to 0.0% in every column — equal area, not equal shape. Cells are square only
-when the data is. If you need a regular lattice regardless of the data's shape, that is what
-`hilbert`, `gilbert`, `dgrid` and `gosper` are for; comparing against them is the point of having
-`nmap` here.
+| padded count | cell aspect | distinct widths |
+| ---- | ---- | ---- |
+| multiple of 4 (400 at N=300) | 1.00–3.21, median 2.36 | 7 |
+| power of two (1024 at N=300) | 1.00 throughout | **1** |
 
-Note which column we are in. The reference takes a `square` flag that rounds the grid up to a
-multiple of 4, and it defaults to **false**; `0.1.1` hardcoded the `true` branch, and this port kept
-that. The remaining difference within that column is the filler jitter. The `false` variant asks for
-fewer fillers — `ceil(sqrt(n))` rather than a multiple of 4 — and scores better on every input here,
-so it is worth exposing if the comparison should cover both.
+Uniform is not the same as square: the aspect is the region's, so the cells are square when the
+region is. At N = 300 with a square region they come out at 1.00.
 
-One deliberate deviation: the reference jitters its filler positions with `Math.random`, so the
-same input gave three different layouts across five calls. Ours seeds a generator instead. The
-placement rule is untouched; only the source of randomness is, so that a measurement can be
-repeated.
+It costs up to four times as many cells — 1024 rather than 400 at N = 300, so 724 fillers instead of
+100 — which the reference's filler placement could not have paid for. Two changes make it
+affordable, both of which leave the choice of filler untouched and only reduce the work to reach it:
+`calcDist` measures each candidate against the points appended since it was last measured rather
+than rescanning all of them, since the running minimum cannot be changed by a point already folded
+into it; and the emptiest candidate is selected directly instead of by sorting all ~92 000 of them
+every round. Verified identical to the full rescan on every case, at 19–108x fewer distance
+computations. N = 300 goes from 30 s to 1.5 s.
+
+Two deliberate deviations from the reference, both noted above: `grid_size` is a power of two rather
+than a multiple of four, and the filler jitter comes from a seeded generator rather than
+`Math.random`, which returned three different layouts across five identical calls. The placement
+rule is untouched in both cases.
+
+Two things `squared` does not do. It does not rescue degenerate input — padding adds points, not
+spread, so a horizontal line, an all-identical set and an integer lattice all still throw. And when
+no fillers are needed at all it can produce overlapping cells: four collinear points pad to a 2×2
+grid, so nothing is added, and the one-unit offset the normalisation applies leaves the split
+non-degenerate but meaningless, putting two of the four in the same cell.
+
+The port also subdivides the caller's bounding box, where the reference returns
+`swidth·sx + 2` × `sheight·sy + 2` — the scaled data plus the margin the fillers occupy — for the
+caller to subdivide. The frames differ by that one-unit offset, which biases the split slightly.
+Adopting the reference's rectangle is not clearly better: its margin gives a degenerate axis
+artificial extent, so the collinear case above stops throwing and silently collides instead.
 
 ## CMDS convergence
 
@@ -477,6 +516,7 @@ rejects them.
 - `nmap` cannot lay out data where a subdivision has no spread on the axis it is cut along, and now
   throws rather than returning `NaN`. See below.
 
-- `nmap` with `squared` is slow: filler placement re-scores every candidate against every placed
-  point, once per filler — 26 ms at N=40, 3.8 s at N=300, 4.6 s at N=500. That is the reference
-  method's own cost. Runs needing no fillers (N a perfect square times 16) are instant.
+- `nmap` with `squared` grows steeply with the filler count: 5 ms at N=40, 1.5 s at N=300, 61 s at
+  N=2000. The candidate pool the reference lays along the perimeter is itself proportional to the
+  number of fillers, so the work is quadratic in it. Runs that need no fillers — N a power of four —
+  are instant.

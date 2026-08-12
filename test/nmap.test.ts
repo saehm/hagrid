@@ -149,12 +149,25 @@ describe("nmap rejects degenerate subdivisions instead of returning NaN", () => 
         expect(() => gridify_nmap(uniform(300, 42))).not.toThrow();
     });
 
-    it("squared pads the count, so degenerate input still throws", () => {
-        // Padding does not give a region spread it did not have. Recorded so
-        // that `squared` is not mistaken for a way around this.
-        expect(() => gridify_nmap(degenerate["vertical line"], { squared: true })).toThrow(
-            /cannot subdivide/,
-        );
+    // `squared` is not a way around this: padding adds points, not spread.
+    for (const name of ["horizontal line", "all identical", "10x10 integer lattice"]) {
+        it(`squared still throws on ${name}`, () => {
+            expect(() => gridify_nmap(degenerate[name], { squared: true })).toThrow(
+                /cannot subdivide/,
+            );
+        });
+    }
+
+    it("squared can collide instead of throwing when no fillers are needed", () => {
+        // Four collinear points pad to a 2x2 grid, so nothing is added, and the
+        // one-unit offset `squared` applies leaves the split non-degenerate but
+        // meaningless: two of the four share a cell. Pinned because it is a
+        // real hole, not because it is wanted — with the previous multiple-of-4
+        // grid this case got 12 fillers and threw.
+        const cells = nmap_regions(degenerate["vertical line"], { squared: true });
+        expect(cells).toHaveLength(4);
+        const distinct = new Set(cells.map((c) => `${c.x.toFixed(6)},${c.y.toFixed(6)}`));
+        expect(distinct.size).toBeLessThan(cells.length);
     });
 
     it("never returns a non-finite position when it does not throw", () => {
