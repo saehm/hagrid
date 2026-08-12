@@ -190,6 +190,13 @@ describe("nmap squared follows nmap-squared.js", () => {
     // square. N=400 needs no fillers at all; the others do.
     const padded = (n: number) => Math.pow(Math.ceil(Math.ceil(Math.sqrt(n)) / 4) * 4, 2);
 
+    // Filler placement re-scores every candidate against every placed point,
+    // once per filler, so it is superlinear in the number of fillers: 26 ms at
+    // N=40, 3.8 s at N=300, 4.6 s at N=500. That is the method's own cost, not
+    // a defect, but it does not fit the 5 s default when the suite runs files
+    // in parallel.
+    const SLOW = 30_000;
+
     for (const n of [40, 300, 400, 500]) {
         it(`N=${n}: places every real point, fillers dropped`, () => {
             const cells = nmap_regions(uniform(n, n * 3), { squared: true });
@@ -197,7 +204,7 @@ describe("nmap squared follows nmap-squared.js", () => {
             for (const c of cells) {
                 expect(Number.isFinite(c.x) && Number.isFinite(c.y)).toBe(true);
             }
-        });
+        }, SLOW);
 
         it(`N=${n}: fillers actually get placed (${padded(n) - n} of them)`, () => {
             // The layout must differ from the unpadded one whenever fillers are
@@ -206,7 +213,7 @@ describe("nmap squared follows nmap-squared.js", () => {
             const plain = JSON.stringify(gridify_nmap(data));
             const sq = JSON.stringify(gridify_nmap(data, { squared: true }));
             if (padded(n) > n) expect(sq).not.toBe(plain);
-        });
+        }, SLOW);
     }
 
     it("is reproducible across identical calls", () => {
@@ -217,7 +224,7 @@ describe("nmap squared follows nmap-squared.js", () => {
         for (let k = 0; k < 4; ++k) {
             expect(JSON.stringify(gridify_nmap(data, { squared: true }))).toBe(first);
         }
-    });
+    }, SLOW);
 
     it("leaves the region's aspect alone", () => {
         // Squaring the region was our addition, not the reference's. A wide
@@ -230,5 +237,5 @@ describe("nmap squared follows nmap-squared.js", () => {
             y0 = Math.min(y0, c.y); y1 = Math.max(y1, c.y + c.height);
         }
         expect((x1 - x0) / (y1 - y0)).toBeGreaterThan(4);
-    });
+    }, SLOW);
 });

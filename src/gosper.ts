@@ -75,7 +75,21 @@ function B(xd: number, yd: number, zd: number, thd = 1e-5): number {
     return zd < 0 ? 6 : 3;
 }
 
-/** Side length of a level-0 hexagon such that `D` fits the Gosper island. */
+/**
+ * Side length of a level-0 hexagon such that `D` fits the Gosper island.
+ *
+ * The island is sized so the data's bounding *circle* fits inside the island's
+ * inscribed circle, measured about the bounding box's centre — the same point
+ * {@link gridify_gosper} centres on. Since the inscribed circle lies entirely
+ * within the island and the island scales linearly with the size, that is
+ * enough to guarantee containment without testing any point.
+ *
+ * The radius is the distance to the furthest *point*, not to the corner of the
+ * bounding box. Those coincide only when the data reaches its own corners:
+ * uniform data does, so it is unaffected, but clustered and elongated sets
+ * leave the corners empty and would otherwise pay for them — about 12% of the
+ * cell size, and with it a fifth of the median displacement.
+ */
 export function gosper_size(D: readonly Point[], level: number): number {
     let min_x = Infinity;
     let max_x = -Infinity;
@@ -88,9 +102,15 @@ export function gosper_size(D: readonly Point[], level: number): number {
         max_y = y > max_y ? y : max_y;
     });
 
-    const half_diagonal =
-        Math.sqrt(Math.pow(max_x - min_x, 2) + Math.pow(max_y - min_y, 2)) / 2;
-    const s = half_diagonal / inscribed_circles[level];
+    const mid_x = (min_x + max_x) / 2;
+    const mid_y = (min_y + max_y) / 2;
+    let radius = 0;
+    for (const [x, y] of D) {
+        const r = Math.hypot(x - mid_x, y - mid_y);
+        if (r > radius) radius = r;
+    }
+
+    const s = radius / inscribed_circles[level];
     return s * Math.pow(REC_SQRT7, level);
 }
 

@@ -45,7 +45,7 @@ The methods `hilbert` and `gosper` are ours; `dgrid`, `cmds`, and `nmap` are rei
 | name | description | parameters |
 | ---- | ---- | ---- |
 | `hilbert` | uses the Hilbert curve, produces rectangular grid cells on a square grid | `pluslevel` (default `0`), `whitespace` (default `1`), `keep_aspect_ratio` |
-| `gilbert` | generalized Hilbert curve on a grid matching the data's aspect ratio | `whitespace` (default `1`), or explicit `width` and `height` |
+| `gilbert` | generalized Hilbert curve on a grid matching the data's aspect ratio | `whitespace` (default `1`), or explicit `cols` and `rows` |
 | `gosper` | uses the Gosper curve, produces hexagonal grid cells | `pluslevel` (default `0`), `whitespace` (default `1`), `orientation` (default `"flat"`) |
 | `dgrid` | fills the whole visualization area, keeping a given aspect ratio of the grid cells | `aspect_ratio` (default `1`), or explicit `rows` and `cols` |
 | `cmds` | similar to MDS but with constraints | `alpha`, `Gamma`, `size`, `max_iter`, `max_rescales`, `inner_iterations` |
@@ -96,6 +96,9 @@ step();
 - **`d3-delaunay` is no longer bundled** into the ESM and CommonJS builds; it is a peer of your own module graph, as its `dependencies` entry always implied. The browser build still bundles it.
 - The package now has an `exports` map. Deep imports into `dist/` are no longer supported.
 - **`cmds`'s `Gamma` is a `Bounds`** — `{x, y, width, height}` — rather than the corner form `{x1, x2, y1, y2}`. The `Region` type is gone; `get_bounds(data)` can now be passed straight in.
+- **`gilbert`'s explicit grid is `cols` and `rows`**, not `width` and `height`, matching `dgrid` and
+  the `[column, row]` cells every lattice method returns. Giving only one of the pair now throws
+  rather than quietly falling back to the derived grid.
 
 ## Licence
 
@@ -199,6 +202,32 @@ global_position(island, index) = decode(index) + rotate(cube2xy(island, size·�
 
 reconstructs any cell — verified across ~50 islands out to six island widths. That is an unbounded
 addressing scheme rather than a single global ordering, and it is not currently exposed as API.
+
+### Sizing the island
+
+`gosper_size` scales the island so the data's bounding circle fits the island's *inscribed* circle,
+about the bounding box's centre. The inscribed circle is wholly inside the island and the island
+scales linearly with the size, so containment is guaranteed without testing a single point.
+
+The radius is measured to the furthest **point**, not to the corner of the bounding box. Those
+coincide only when the data reaches its own corners — uniform data does, which is why it is
+unaffected, but anything clustered or elongated leaves the corners empty and used to pay for them:
+
+| data | cells reached | usable cells per point | median displacement |
+| ---- | ---- | ---- | ---- |
+| clustered, N=400 | 39.8% → **53.4%** | 2.39 → **3.21** | 1.16 → **0.80** |
+| clustered, N=1000 | 40.1% → **53.9%** | 0.96 → **1.29** | 4.72 → **3.48** |
+| uniform, N=400 | 43.0% → 44.4% | 2.58 → 2.67 | 0.41 → 0.41 |
+
+"Cells reached" is the share of the curve's cells whose centre lands inside the data's bounding box.
+The rest of the island is unreachable, which is why the nominal provisioning overstates what is
+available: `7^4 = 2401` cells for 1000 points looks like 2.4x, but under one cell per point actually
+sits where the data is.
+
+A tighter fit is possible. Replacing the inscribed circle with the island's full radial profile —
+a constant table per level, and still one `O(N)` pass — reaches 64% and 75% on those two rows, for
+median displacements of 0.64 and 2.26. It needs the table to be a true lower bound over each
+angular bucket, since the boundary is fractal, plus a containment check to make it exact. Not done.
 
 ## Hexagon orientation
 
@@ -360,12 +389,12 @@ padded into a mostly-empty square — for a 1000x10 extent, roughly 1% of the ce
 holding the same number of points needs ~100x more of them. `gosper` fits its island isotropically
 and fares no better: a 1000x10 dataset comes back at aspect 2.8 rather than 100.
 
-`gilbert` is a generalized Hilbert curve that fills an arbitrary `width x height` rectangle, so the
+`gilbert` is a generalized Hilbert curve that fills an arbitrary `cols x rows` rectangle, so the
 grid can simply match the data:
 
 ```js
 const { positions } = hagrid.gridify(data, "gilbert");
-const { positions } = hagrid.gridify(data, "gilbert", { width: 200, height: 5 });
+const { positions } = hagrid.gridify(data, "gilbert", { cols: 200, rows: 5 });
 ```
 
 | N, at 1000x10 aspect | `gilbert` | `hilbert` (padded square) |
@@ -428,5 +457,26 @@ rejects them.
   same input cleanly.
 
 - `gosper` does not preserve the data's aspect ratio for elongated inputs; use `gilbert` for those.
+
+- **`gosper` falls off a cliff when the level barely covers the point count.** Cells come in powers
+  of seven, so `⌈log₇ N⌉` lands anywhere from 1.0x to 7.0x nominal — and only ~45% of the island is
+  reachable by the data, so 1.18x nominal is about half a usable cell per point. The collision walk
+  then scans a large share of the curve per point and the layout degenerates:
+
+  | N | level | nominal | time |
+  | ---- | ---- | ---- | ---- |
+  | 20 000 | 6 | 5.88x | 42 ms |
+  | 50 000 | 6 | 2.35x | 107 ms |
+  | 100 000 | 6 | 1.18x | **33 900 ms** |
+  | 200 000 | 7 | 8.24x | 192 ms |
+
+  Raise `whitespace` until the level ticks over — but note it only bites when it crosses a power of
+  seven, so there is no fine adjustment. Counting *usable* rather than nominal cells in the level
+  formula would fix this properly; not done.
+
 - `nmap` cannot lay out data where a subdivision has no spread on the axis it is cut along, and now
   throws rather than returning `NaN`. See below.
+
+- `nmap` with `squared` is slow: filler placement re-scores every candidate against every placed
+  point, once per filler — 26 ms at N=40, 3.8 s at N=300, 4.6 s at N=500. That is the reference
+  method's own cost. Runs needing no fillers (N a perfect square times 16) are instant.
