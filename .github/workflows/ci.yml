@@ -34,10 +34,20 @@ jobs:
             - name: Type check
               run: pnpm typecheck
 
+            # Under coverage, so the report comes from the same run that gates
+            # the merge rather than a second one that could disagree.
             - name: Run tests
-              run: pnpm test
+              run: pnpm test:coverage
 
             # Last, because a build that fails after green tests is a packaging
             # problem, and the distinction is worth keeping in the log.
             - name: Build
               run: pnpm build
+
+            # Non-blocking: a Codecov outage should not turn a green suite red.
+            - name: Upload coverage to Codecov
+              uses: codecov/codecov-action@v5
+              continue-on-error: true
+              with:
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  files: ./coverage/lcov.info

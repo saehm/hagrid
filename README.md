@@ -1,14 +1,15 @@
-## hagrid — Removes overlaps in scatterplots using space filling curves.
+## Hagrid — Removes overlaps in scatterplots using space filling curves.
 
 <a href="#"><img src="https://raw.githubusercontent.com/saehm/hagrid/refs/heads/master/hagrid.svg" width=80 align="left" hspace="10" vspace="6"></a>
 
 Draw a scatterplot with glyphs or images instead of points and they overlap, which is where the plot stops being readable.
-hagrid moves each point to its own cell on a grid, keeping it as close to where it started as the grid allows — seven techniques behind one call, each documented with what it refuses and what it gets wrong.
+Hagrid moves each point to its own cell on a grid, keeping it as close to where it started as the grid allows — seven techniques behind one call, each documented with what it refuses and what it gets wrong.
 
 <br>
 
 [![CI](https://img.shields.io/github/actions/workflow/status/saehm/hagrid/ci.yml?branch=master&label=tests)](https://github.com/saehm/hagrid/actions/workflows/ci.yml)
 [![Docs](https://img.shields.io/github/actions/workflow/status/saehm/hagrid/docs.yml?branch=master&label=docs)](https://saehm.github.io/hagrid/)
+[![Coverage](https://img.shields.io/codecov/c/github/saehm/hagrid?label=coverage)](https://app.codecov.io/gh/saehm/hagrid)
 ![NPM Downloads](https://img.shields.io/npm/dw/%40saehrimnir%2Fhagrid)
 [![License](https://img.shields.io/github/license/saehm/hagrid)](https://raw.githubusercontent.com/saehm/hagrid/refs/heads/master/LICENCE)
 

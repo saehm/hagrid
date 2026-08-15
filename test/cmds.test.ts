@@ -69,7 +69,13 @@ describe("cmds_grid follows §4.2", () => {
     });
 });
 
-describe("cmds terminates and produces a usable layout", () => {
+/*
+ * cmds runs its full iteration budget on almost every input, so these are the
+ * slowest tests here — a few seconds each, and enough over the 5 s default under
+ * v8 coverage instrumentation to time out. The budget is generous rather than
+ * tuned: it is there to catch a genuine hang, not to police the runtime.
+ */
+describe("cmds terminates and produces a usable layout", { timeout: 60_000 }, () => {
     for (const n of [10, 25, 60]) {
         it(`N=${n}: finite, distinct, lattice-aligned positions`, async () => {
             const data = uniform(n, n * 7);

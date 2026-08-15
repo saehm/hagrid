@@ -9,5 +9,12 @@ export default defineConfig({
     test: {
         include: ["test/**/*.test.ts"],
         environment: "node",
+        coverage: {
+            provider: "v8",
+            // The library only — the rollup config and this file are build
+            // scaffolding, and counting them would flatter the number.
+            include: ["src/**/*.ts"],
+            reporter: ["text", "lcov"],
+        },
     },
 });
