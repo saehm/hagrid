@@ -80,11 +80,31 @@ usable, so holding the same number of points needs about 100× more of them:
 Switch the demo above to the elongated dataset to see it. [Gilbert](/techniques/gilbert/)
 is the same curve without the square constraint.
 
-**Exact duplicates.** The collision walk resolves most contested cells but not all of them,
-so a few points can end up sharing. On a 200-point set with 195 distinct positions it
-returns 196 distinct cells. This is pre-existing behaviour, byte-identical to `0.1.1`, and
-kept that way deliberately. [GridFit](/techniques/gridfit/) and
-[Gilbert](/techniques/gilbert/) handle the same input cleanly.
+**Dense regions and extreme outliers.** Both are the same failure wearing different clothes:
+the mapping onto the grid is a plain linear scale of the data's bounding box, so how many cells
+a region gets depends on how much *space* it occupies, not on how many points are in it.
+
+Every point that wants a cell already taken is placed by walking the curve to the nearest free
+one, and that walk is what you pay. Measured over 600 points on a 32×32 grid:
+
+| data | cells the points ask for | contested | mean move | furthest |
+| ---- | ---- | ---- | ---- | ---- |
+| uniform | 450 | 150 | 0.36 cells | 3.6 |
+| six loose clusters | 322 | 278 | 1.99 | 11.0 |
+| six tight clusters | 69 | 531 | **4.70** | 11.7 |
+| one far outlier | 9 | 591 | **18.99** | 34.5 |
+
+Tight clusters ask for 69 of the 1 024 cells, so 531 of the 600 points arrive at an occupied one
+and get walked outward — the layout is decided by the collision walk rather than by the curve.
+A single distant outlier is worse: it stretches the bounding box until the rest of the data
+falls into nine cells, and the mean point travels nineteen of them. The grid is mostly empty
+while every point fights for the same corner.
+
+The dial is `whitespace`, but it is a coarse one here — it only bites when it crosses a power of
+four, so the next step up is four times the cells. For an outlier, clipping or transforming the
+input is the real fix; the technique cannot tell an outlier from a wide dataset.
+[DGrid](/techniques/dgrid/) and [GridFit](/techniques/gridfit/) assign cells by rank rather
+than by scaled position, so neither is affected by how the data is spread.
 
 ## References
 

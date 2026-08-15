@@ -51,10 +51,11 @@ const min_pitch = (pts) => {
 /**
  * Overlapping pairs, ignoring points that were seated in the *same* cell.
  *
- * Coincident output is a property of the technique, not of the glyph size —
- * `hilbert`'s collision walk leaves a few duplicates on some inputs, which its
- * own page documents — and no size short of zero separates two glyphs at the
- * same coordinates. Counted and reported, not charged to the sizing.
+ * Coincident output is a property of the technique, not of the glyph size, and
+ * no size short of zero separates two glyphs at the same coordinates. It should
+ * be zero for every method here — it was 21 of the paintings under `hilbert`
+ * until the collision walk was fixed, which is how that bug was found — so it
+ * is counted and reported rather than charged to the sizing.
  */
 function overlaps(pts, hw, hh, hex) {
     let n = 0;

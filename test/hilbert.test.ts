@@ -5,7 +5,12 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { HILBERT_MAX_LEVEL, hilbert_decode, hilbert_encode } from "../src/hilbert.js";
+import {
+    HILBERT_MAX_LEVEL,
+    gridify_hilbert,
+    hilbert_decode,
+    hilbert_encode,
+} from "../src/hilbert.js";
 
 const LEVELS = [1, 2, 3, 4, 5];
 
@@ -40,6 +45,77 @@ describe("hilbert_encode and hilbert_decode are inverses", () => {
             }
         });
     }
+});
+
+/**
+ * Every point gets its own cell whenever the grid has room, however contested
+ * the preferred cells are. This is the property the collision walk exists for,
+ * and it was broken for years by a units mismatch: the walk was handed the
+ * curve length where it expected the grid's side, so it accepted indices past
+ * the end of the curve, and those decoded back onto cells already taken.
+ */
+describe("gridify_hilbert seats every point when the grid has room", () => {
+    /** Deterministic, so a failure is reproducible. */
+    function rng(seed: number) {
+        let a = seed;
+        return () => {
+            a |= 0;
+            a = (a + 0x6d2b79f5) | 0;
+            let t = Math.imul(a ^ (a >>> 15), 1 | a);
+            t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+            return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+        };
+    }
+
+    const cases: [string, number, number][] = [
+        // [name, points, distinct positions among them]
+        ["all distinct", 800, 800],
+        ["a few duplicates", 200, 195],
+        ["heavy duplicates", 400, 300],
+        ["mostly one point", 600, 100],
+    ];
+
+    for (const [name, n, distinct] of cases) {
+        it(`${name}: ${n} points get ${n} distinct cells`, () => {
+            const next = rng(1);
+            const base = Array.from(
+                { length: distinct },
+                () => [next() * 100, next() * 100] as [number, number],
+            );
+            const points = Array.from({ length: n }, (_, i) =>
+                i < distinct ? base[i] : base[Math.floor(next() * distinct)],
+            );
+
+            const level = Math.ceil(Math.log2(n) / Math.log2(4));
+            const out = gridify_hilbert(points, { level });
+
+            expect(out).toHaveLength(n);
+            expect(new Set(out.map((p) => p.join(","))).size).toBe(n);
+        });
+    }
+
+    it("indexes stay on the curve", () => {
+        // A grid barely larger than the point count forces the walk to the ends,
+        // which is where an off-by-one lands a point outside the lattice.
+        const level = 4;
+        const size = 2 ** level;
+        const points = Array.from({ length: size ** 2 }, () => [0, 0] as [number, number]);
+        const out = gridify_hilbert(points, { level });
+
+        expect(new Set(out.map((p) => p.join(","))).size).toBe(size ** 2);
+        for (const [x, y] of out) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThan(size);
+            expect(y).toBeGreaterThanOrEqual(0);
+            expect(y).toBeLessThan(size);
+        }
+    });
+
+    it("throws rather than overflowing when there is no room", () => {
+        const level = 2;
+        const points = Array.from({ length: 4 ** level + 1 }, () => [0, 0] as [number, number]);
+        expect(() => gridify_hilbert(points, { level })).toThrow(/more points than cells/);
+    });
 });
 
 describe("hilbert rejects sizes it cannot index", () => {

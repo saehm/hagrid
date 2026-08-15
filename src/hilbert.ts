@@ -84,6 +84,9 @@ export function hilbert_decode(n: number, size: number): Point {
 /**
  * Places point `i` when its preferred cell `p` is taken, by walking outward
  * along the curve in both directions and claiming the nearer free cell.
+ *
+ * `size` is the grid's side, `2^level` — the same unit {@link hilbert_decode}
+ * takes. The curve has `size²` cells, so the last valid index is `size² - 1`.
  */
 function hilbert_collision(
     P: Map<number, number>,
@@ -93,7 +96,7 @@ function hilbert_collision(
     size: number,
 ): void {
     const e = size ** 2;
-    const valid = (q: number) => q >= 0 && q <= e;
+    const valid = (q: number) => q >= 0 && q < e;
     let pl = p;
     let pr = p;
     for (;;) {
@@ -154,7 +157,6 @@ export function gridify_hilbert(
     { level, keep_aspect_ratio = false }: HilbertParameters,
 ): Point[] {
     const size = 2 ** level;
-    const curveLength = 4 ** level;
     const N = D.length;
     const P = new Map<number, number>();
     const Y: Point[] = new Array(N).fill(0);
@@ -167,7 +169,7 @@ export function gridify_hilbert(
         const p = hilbert_encode([x, y], size);
         if (P.has(p)) {
             // collision detected
-            hilbert_collision(P, p, [x, y], i, curveLength);
+            hilbert_collision(P, p, [x, y], i, size);
         } else {
             P.set(p, i);
         }

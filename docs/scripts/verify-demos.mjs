@@ -181,10 +181,23 @@ check("nmap rejects the integer lattice", !!lattice.error, lattice.error ?? "no 
     check("gilbert rejects a grid smaller than the point count", !!tiny.error, tiny.error ?? "");
 }
 
-// Duplicates: hilbert is documented to leave a few sharing; gridfit must not.
+/*
+ * Duplicates. Both methods have to seat every point in its own cell, however
+ * many of them want the same one — hilbert used to fail this, and the failure
+ * was invisible in the demo because coincident glyphs look like one glyph.
+ */
 for (const m of ["hilbert", "gridfit"]) {
-    const r = layout(m, build("duplicates", 200, 1), {});
+    const data = build("duplicates", 200, 1);
+    const r = layout(m, data, {});
     check(`${m} on duplicates`, !r.error, r.error ?? "");
+    if (r.error) continue;
+    const last = r.frames[r.frames.length - 1];
+    const distinct = count_distinct(last.positions);
+    check(
+        `${m} gives every duplicate its own cell`,
+        distinct === data.length,
+        `${distinct} distinct cells for ${data.length} points`,
+    );
 }
 
 // Both colour encodings: one entry per point, and each must actually vary.

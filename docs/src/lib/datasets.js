@@ -6,8 +6,8 @@ import { gaussian, mulberry32 } from "./rng.js";
  * These are not stand-ins for real projections — they are chosen so that each
  * one provokes a documented behaviour of some method: the elongated set shows
  * why `gilbert` exists, the lattice set is what makes `nmap` throw, and the
- * duplicates set is where `hilbert`'s collision walk gives up. A demo you
- * cannot make fail teaches nothing about when to reach for the alternative.
+ * duplicates set is what `cmds` cannot lay out at all. A demo you cannot make
+ * fail teaches nothing about when to reach for the alternative.
  *
  * Every generator takes the seeded RNG, so the same seed is the same figure on
  * every reload and in every browser.
