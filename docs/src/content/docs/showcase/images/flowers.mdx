@@ -1,0 +1,63 @@
+---
+title: Flowers
+description: When the item is a photograph, the case for a cell makes itself.
+sidebar:
+    order: 1
+---
+
+import ImagesShowcase from "../../../../components/ImagesShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+import flowers from "../../../../data/flowers-2d.json";
+
+560 photographs of flowers from seven species, projected by their image content.
+
+<ImagesShowcase client:visible data={flowers} method="as projected" zoom />
+
+## Nothing is encoded
+
+Every other showcase in this section argues about a mapping: which measurement drives which part
+of the glyph, and whether the reader can decode it. Here there is no mapping to argue about. The
+item *is* a picture, and the only question left is the one this library exists for — is there
+room to draw it.
+
+That makes the image case the cleanest statement of the problem. A thumbnail small enough not to
+overlap is a thumbnail too small to recognise, and shrinking until the overlaps go away destroys
+exactly the thing you came to look at. Switch **Layout** and the same 560 photographs become
+individually visible, at a size set by the grid rather than by the closest pair.
+
+The mount around each thumbnail is the species. It is there to answer a question the pictures
+cannot: whether the projection grouped what a botanist would group.
+
+## Where the projection is honest, and where it is not
+
+Sunflowers and bluebells separate cleanly — strong, unmistakable colour. The white flowers do
+not: snowdrops and lily of the valley sit in the same region, because a projection computed from
+image content is largely a projection of colour and shape, and both are small white flowers on
+green.
+
+That is worth seeing rather than being told, and you can only see it once the images are big
+enough to compare side by side. On the raw projection that neighbourhood is a smear.
+
+## References
+
+<Reference
+    authors="Maria-Elena Nilsback and Andrew Zisserman"
+    title="Automated Flower Classification over a Large Number of Classes"
+    venue="Conference on Computer Vision, Graphics & Image Processing"
+    pages="722–729"
+    year="2008"
+    doi="10.1109/ICVGIP.2008.47"
+    note="The flower categories these photographs come from."
+/>
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="Where this example first appeared."
+/>

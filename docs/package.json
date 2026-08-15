@@ -1,0 +1,47 @@
+{
+    "name": "@saehrimnir/hagrid-docs",
+    "version": "0.0.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "astro dev",
+        "build": "astro build",
+        "preview": "astro preview",
+        "check": "astro check",
+        "verify": "node scripts/verify-demos.mjs",
+        "iris": "node scripts/build-iris.mjs",
+        "dataset": "node scripts/build-dataset.mjs",
+        "fsdd": "node scripts/build-fsdd.mjs",
+        "glass": "node scripts/build-glass.mjs",
+        "ecg": "node scripts/build-ecg.mjs",
+        "pokemon": "node scripts/build-pokemon.mjs",
+        "verify:iris": "node scripts/verify-iris.mjs",
+        "verify:glyphs": "node scripts/verify-glyphs.mjs",
+        "images": "node scripts/build-images.mjs"
+    },
+    "dependencies": {
+        "@astrojs/markdown-remark": "^7.2.0",
+        "@astrojs/starlight": "^0.41.7",
+        "@astrojs/svelte": "^9.0.1",
+        "@saehrimnir/druidjs": "0.9.0",
+        "@saehrimnir/hagrid": "workspace:*",
+        "@saehrimnir/mistle": "0.3.0",
+        "astro": "^7.0.2",
+        "d3-delaunay": "^6.0.4",
+        "katex": "^0.18.4",
+        "rehype-katex": "^7.0.1",
+        "remark-math": "^6.0.0",
+        "sharp": "^0.34.5",
+        "starlight-llms-txt": "^0.11.0",
+        "starlight-typedoc": "^0.23.0",
+        "starlight-versions": "^0.9.1",
+        "svelte": "^5.43.6",
+        "typedoc": "^0.28.20",
+        "typedoc-plugin-markdown": "^4.12.0"
+    },
+    "devDependencies": {
+        "@astrojs/check": "^0.9.10",
+        "@saehrimnir/sickle": "0.2.0",
+        "typescript": "^5.9.3"
+    }
+}

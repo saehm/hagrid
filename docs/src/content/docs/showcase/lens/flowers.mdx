@@ -1,0 +1,73 @@
+---
+title: Lens
+description: Grid what is under the pointer, and leave the rest of the plot alone.
+sidebar:
+    order: 1
+---
+
+import LensShowcase from "../../../../components/LensShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+import flowers from "../../../../data/flowers-2d.json";
+import paintings from "../../../../data/paintings-2d.json";
+
+Every other page in this section grids the whole plot. That is a bargain: you get room to draw,
+and you pay for it in position — each item lands near where it belongs rather than exactly
+where it was.
+
+There is another way to spend the same technique. Leave the projection untouched, overlaps and
+all, and grid only the handful of items under the pointer, into a panel beside it.
+
+<LensShowcase client:visible data={flowers} />
+
+Move the pointer over the plot; scroll to make the lens bigger or smaller.
+
+## Why this works
+
+The layout call is *fast*. Gridding twenty or fifty points is on the order of a tenth of a
+millisecond — the readout under the plot measures it live — so it can run on every pointer move
+without the interaction feeling heavy. Overlap removal stops being a thing you do to a plot and
+becomes a thing you do to a *selection*.
+
+And the trade changes shape. Displacement is the price of a static grid, and it matters because
+the grid is the map you are reading. In a lens it barely matters at all: the panel is a
+magnifier, not the map. The plot still shows every image where the projection put it, so nothing
+about the arrangement is being misreported — the lens only answers "what, specifically, is in
+this clump?"
+
+That is the question a dense projection is worst at answering and the one people ask most.
+
+## The technique still matters
+
+Switch the technique above and the panel changes character:
+
+- **Hilbert** and **Gilbert** give a square-ish block, which is the easiest thing to scan.
+- **Gosper** answers in the input's own coordinates rather than in cell indices, so its cells
+  are placed by their hexagonal lattice — visibly rounder, and it keeps the selection's shape
+  more faithfully.
+- **DGrid** packs tightest, filling its block completely, which is what you want when the lens
+  is small and every pixel counts.
+
+The neighbourhood is small, so the differences that dominate the static case — how many cells
+a method provisions, how badly it handles an elongated extent — mostly wash out. What is left is
+the shape of the block and how densely it fills.
+
+## A harder case
+
+The same lens over the [paintings](/showcase/images/paintings/), where the projection is denser
+and the clumps are more tangled:
+
+<LensShowcase client:visible data={paintings} />
+
+## References
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="The lens interaction comes from the demo that accompanied this paper."
+/>

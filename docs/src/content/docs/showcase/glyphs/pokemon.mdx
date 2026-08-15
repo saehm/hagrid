@@ -1,0 +1,72 @@
+---
+title: Pokémon
+description: When the audience already knows the glyph — and when the obvious label is the wrong one.
+sidebar:
+    order: 7
+---
+
+import PokemonShowcase from "../../../../components/PokemonShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+
+250 Pokémon, each with six base stats — HP, Attack, Defense, Special Attack, Special Defense and
+Speed — and one or two types.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): the six stats are
+already min–max normalised onto the same 0–1 footing, so they go in as they are, then
+`new druid.TSNE(Z, { seed: 1, perplexity: 40, epsilon: 5 })`. `pnpm pokemon` regenerates it, and
+`--sweep` re-runs the search that chose those parameters.
+
+<PokemonShowcase client:visible />
+
+## A glyph nobody has to learn
+
+Everywhere else in this section the glyph is a design decision that has to be explained. Here it
+is not: the games already draw base stats as a hexagonal radar, in this exact arrangement, and
+anyone who has played one reads it without a legend.
+
+That is worth more than it sounds. A glyph is only useful if it is decoded faster than a table,
+and the fastest glyph to decode is one the reader already knows. When a convention exists for
+your data, borrowing it beats inventing something better.
+
+The layout carries meaning too. Physical stats run down the right, special down the left, speed
+at the bottom — so Attack sits opposite Special Defense, and Defense opposite Special Attack. A
+physically bulky Pokémon leans right; a glass-cannon special attacker leans left. Fill is the
+primary type, the outline the second.
+
+## The obvious label is the wrong one
+
+Colour the glyphs by type and the colours are *scattered*. That is not a failure of the
+projection — it is the finding.
+
+Type governs what a Pokémon is strong and weak against. It says almost nothing about how its
+stats are distributed: measured over each one's ten nearest neighbours in stat space, only
+**15.4%** share a primary type. Water Pokémon are not statistically alike; they are alike in what
+they resist.
+
+What the projection *does* separate is stat profile and power level. Frail and fast sits apart
+from bulky and slow, and both sit apart from the fully-evolved and legendary block where every
+stat is high. You can see all of that from the shapes without reading a single label — a
+lopsided sliver, a fat even hexagon, a tiny one.
+
+This is the case for glyphs stated as plainly as it gets. With dots and a type legend you would
+conclude the projection had failed. With the glyphs you can see what it actually organised, which
+is something the labels never mentioned.
+
+## References
+
+<Reference
+    title="Pokémon base stats, generations I–II"
+    url="https://github.com/saehm/hagrid/blob/master/docs/scripts/pokemon.json"
+    note="250 Pokémon, six base stats min–max normalised, with primary and secondary typing. Pokémon and its character names are trademarks of Nintendo, Creatures Inc. and GAME FREAK Inc.; used here only as example data."
+/>
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+/>

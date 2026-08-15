@@ -1,0 +1,104 @@
+---
+title: GridFit
+description: Hierarchical partitioning that keeps every point close to its original cell.
+sidebar:
+    order: 7
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+
+GridFit (Keim & Herrmann, *IEEE Visualization* '98) hierarchically partitions the data
+space, shifting each dividing line by the smallest integer amount that leaves every subregion
+at least as many grid cells as it has points — the invariant of §3.2:
+
+<Math
+    display
+    tex="P(B) \le A(B) \quad \text{for every block } B"
+    caption="P(B) is how many points fall in block B, A(B) how many grid cells it owns. A block that ever breaks this has more points than places to put them, and no amount of later shuffling can seat them all."
+/>
+
+It is the most robust method here on awkward data: identical points, single rows or columns,
+and heavy duplicates all place cleanly, where [NMap](/techniques/nmap/) rejects them.
+
+<GridDemo client:visible method="gridfit" n={400} />
+
+## It takes grid units
+
+GridFit is the one method whose **input** is already in grid-cell units, not data
+coordinates. Scale your data onto the lattice you want before calling it:
+
+```js
+const bb = hagrid.utils.get_bounds(data);
+const sx = bb.width > 0 ? (cols - 1) / bb.width : 0;
+const sy = bb.height > 0 ? (rows - 1) / bb.height : 0;
+const scaled = data.map(([x, y]) => [(x - bb.x) * sx, (y - bb.y) * sy]);
+
+const positions = hagrid.gridify_gridfit(scaled);
+```
+
+The demo above does exactly this — the `whitespace` slider changes how many cells the input is
+scaled onto, which is the only dial it has. GridFit itself takes no parameters.
+
+## Give it slack
+
+How much room the lattice has is not a detail; it is the whole difference between GridFit
+working well and working badly. Because every point must get its own cell, a grid with barely
+more cells than points leaves the partitioning no freedom, and points travel a long way to
+find somewhere to sit.
+
+Measured on 1 000 uniform random points, varying only the grid the data was scaled onto:
+
+| grid | cells per point | mean displacement |
+| ---- | ---- | ---- |
+| 32×32 | 1.02 | **16.51 cells** |
+| 40×40 | 1.60 | 1.76 cells |
+| 50×50 | 2.50 | **1.15 cells** |
+| 70×70 | 4.90 | 1.30 cells |
+| 100×100 | 10.00 | 1.60 cells |
+
+There is a sweet spot around 2.5 cells per point, and a cliff below about 1.5. The demo therefore
+defaults to `whitespace` 2.5 rather than 1 — drag it down to 1 and watch the displacement
+readout jump by an order of magnitude.
+
+## What it optimises
+
+Every point gets its own cell, and the mean displacement from its original position stays
+near a single cell — optimization goal (1) of §2.1:
+
+| N | time | mean displacement |
+| ---- | ---- | ---- |
+| 1 000 | 2 ms | 0.73 cells |
+| 5 000 | 5 ms | 0.75 cells |
+| 20 000 | 19 ms | 0.75 cells |
+
+Those figures are the library's own, and the sweep above did not reproduce them: the best this
+site measured on uniform data at N = 1 000 was 1.15 cells, not 0.73. The discrepancy is
+probably the scaling — the two measurements do not necessarily put the data on the same
+lattice — but it has not been run down, so treat 0.73 as a target rather than a promise.
+
+The second pass of §3.3 seats anything a straight-line partition could not, and the divider
+search runs in both directions, as the paper's
+
+<Math display tex="\min \{\, x \in \mathbb{Z} \ \mid\ P(B_1) \le A(B_1) \ \wedge\ P(B_2) \le A(B_2) \,\}" />
+
+requires — the smallest shift, of either sign, that satisfies the invariant on **both** sides
+of the cut. Searching one direction only finds a legal shift, not the smallest, and every
+cell of overshoot is displacement paid for nothing.
+
+## Output space
+
+Grid units — the same space as the input, since that is already grid units.
+
+## References
+
+<Reference
+    authors="Daniel A. Keim and Annemarie Herrmann"
+    title="The Gridfit Algorithm: An Efficient and Effective Approach to Visualizing Large Amounts of Spatial Data"
+    venue="IEEE Visualization"
+    pages="181–188"
+    year="1998"
+    doi="10.1109/VISUAL.1998.745301"
+    note="The method this page documents. §2.1 is the optimization goal, §3.2 the P(B) ≤ A(B) invariant, §3.3 the second placement pass."
+/>

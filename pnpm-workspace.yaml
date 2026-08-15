@@ -1,0 +1,21 @@
+packages:
+  - "docs"
+
+# One KaTeX, not two. rehype-katex pins ^0.16, whose markup uses bare class
+# names (.base, .strut, .sizing); 0.18 namespaces them (.katex-base, ...). With
+# both installed the stylesheet matches one renderer and every formula from the
+# other falls back to raw MathML text on the page. The docs load 0.18's
+# stylesheet, so both renderers are held to 0.18.
+overrides:
+  katex: 0.18.4
+
+allowBuilds:
+  esbuild: true
+  sharp: true
+
+minimumReleaseAgeExclude:
+  - '@saehrimnir/sickle@0.2.0'
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

@@ -25,24 +25,38 @@
     },
     "type": "module",
     "sideEffects": false,
-    "main": "dist/hagrid.cjs",
-    "module": "dist/hagrid.js",
-    "types": "dist/hagrid.d.ts",
-    "unpkg": "dist/hagrid.min.js",
-    "jsdelivr": "dist/hagrid.min.js",
+    "main": "./dist/hagrid.cjs",
+    "module": "./dist/hagrid.js",
+    "browser": "./dist/hagrid.js",
+    "types": "./dist/hagrid.d.ts",
+    "unpkg": "./dist/hagrid.umd.js",
+    "jsdelivr": "./dist/hagrid.umd.js",
     "exports": {
         ".": {
-            "types": "./dist/hagrid.d.ts",
-            "import": "./dist/hagrid.js",
-            "require": "./dist/hagrid.cjs"
+            "import": {
+                "types": "./dist/hagrid.d.ts",
+                "default": "./dist/hagrid.js"
+            },
+            "require": {
+                "types": "./dist/hagrid.d.cts",
+                "default": "./dist/hagrid.cjs"
+            }
         },
         "./package.json": "./package.json"
     },
     "files": [
-        "dist/",
+        "dist/hagrid.js",
+        "dist/hagrid.js.map",
+        "dist/hagrid.cjs",
+        "dist/hagrid.cjs.map",
+        "dist/hagrid.umd.js",
+        "dist/hagrid.umd.js.map",
+        "dist/hagrid.d.ts",
+        "dist/hagrid.d.ts.map",
+        "dist/hagrid.d.cts",
+        "dist/hagrid.d.cts.map",
         "README.md",
-        "COPYING",
-        "COPYING.LESSER",
+        "LICENCE",
         "THIRD-PARTY.md"
     ],
     "engines": {
@@ -54,6 +68,9 @@
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
         "test:watch": "vitest",
+        "docs:dev": "pnpm run build && pnpm --filter @saehrimnir/hagrid-docs dev",
+        "docs:build": "pnpm run build && pnpm --filter @saehrimnir/hagrid-docs build",
+        "docs:preview": "pnpm --filter @saehrimnir/hagrid-docs preview",
         "prepublishOnly": "pnpm run typecheck && pnpm run test && pnpm run build"
     },
     "devDependencies": {

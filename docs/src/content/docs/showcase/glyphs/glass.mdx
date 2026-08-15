@@ -1,0 +1,90 @@
+---
+title: Glass
+description: Parts of a whole want a stacked glyph, not a star.
+sidebar:
+    order: 3
+---
+
+import GlassShowcase from "../../../../components/GlassShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+
+214 fragments of glass from forensic casework — window panes, headlamps, tableware, containers —
+each analysed for its refractive index and the percentage of eight oxides it contains.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): a CLR transform of
+the four always-present oxides, with the trace oxides and the refractive index standardised
+alongside, then `new druid.TSNE(Z, { seed: 1, perplexity: 40, epsilon: 5 })`. `pnpm glass`
+regenerates it, and `--sweep` re-runs the search that chose those parameters.
+
+<GlassShowcase client:visible />
+
+## Why not a star
+
+Every other glyph in this section treats its columns as independent magnitudes. These are not.
+The eight oxides are percentages of one sample and sum to 100 — measured across the dataset they
+land between 99.02 and 100.10 — so the total carries no information at all. Only the split does.
+
+A star or a bar chart encodes each part as its own length, which spends most of its ink on a
+constraint rather than on the data: push one oxide up and the others must come down, so the
+glyph shows the same fact several times. A **stacked column** shows only the split. Every glyph
+is the same height, and the reading is where the boundaries fall.
+
+Silicon takes about 72% of every sample, so it gets the quiet colour; the minor oxides get the
+distinct ones, because that is where the differences between one fragment and the next actually
+live.
+
+## The metric matters too
+
+Compositional data breaks the usual distance as well as the usual glyph. Two samples that differ
+by one percentage point of sodium are not as similar as the raw numbers suggest, because that
+point had to come out of something else — the parts are not free to vary independently, and a
+euclidean distance over percentages treats the closure as though it were signal.
+
+The Aitchison geometry is the standard answer: a centred log-ratio transform maps the simplex
+into a real space where euclidean distance means something again. Three representations were
+measured, by how often a point's ten nearest neighbours share its class:
+
+| representation | label agreement |
+| ---- | ---- |
+| standardised, euclidean | 58.6% |
+| **CLR over the always-present oxides** | **59.3%** |
+| CLR over all eight, zeros replaced | 60.5% |
+
+`clr-all` edges it, but a log-ratio is undefined at zero and four of these oxides are absent from
+many samples, so that margin is bought with 176 invented values. The shipped projection uses the
+middle row: CLR over the oxides that are always present, with the traces and the refractive index
+standardised alongside them.
+
+## What the glyphs show that the position does not
+
+The projection separates the window glass from everything else, and that is about as far as a
+position can take you. The glyphs say *why*: the window fragments are the ones whose columns are
+nearly all silicon with a thin sodium band, while headlamps carry visibly more barium and the
+containers more calcium.
+
+That is the argument for a glyph in one sentence. The layout tells you which fragments group
+together; the stacked columns tell you what the group is made of, which is the question a forensic
+comparison is actually asking.
+
+## References
+
+<Reference
+    authors="B. German"
+    title="Glass Identification"
+    venue="UCI Machine Learning Repository"
+    year="1987"
+    doi="10.24432/C5WW2P"
+    note="214 fragments, refractive index and eight oxides by weight percent. Loaded through @saehrimnir/mistle."
+/>
+
+<Reference
+    authors="John Aitchison"
+    title="The Statistical Analysis of Compositional Data"
+    venue="Journal of the Royal Statistical Society: Series B"
+    volume="44"
+    issue="2"
+    pages="139–160"
+    year="1982"
+    doi="10.1111/j.2517-6161.1982.tb01195.x"
+    note="Why percentages of a whole need their own geometry, and the log-ratio transform used here."
+/>

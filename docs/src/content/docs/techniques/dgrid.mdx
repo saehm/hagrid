@@ -1,0 +1,74 @@
+---
+title: DGrid
+description: Recursively bisects the data into a dense grid that fills the whole plot area.
+sidebar:
+    order: 4
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+
+DGrid is a reimplementation of Hilasaca et al.'s Distance-preserving Grid. It recursively
+bisects the point set and the cell block together, splitting along whichever axis has more
+cells to give, until each subset holds a single point.
+
+It fills the whole visualization area, keeping the requested cell aspect ratio.
+
+<GridDemo client:visible method="dgrid" n={400} />
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `aspect_ratio` | `1` | cell aspect ratio, used to derive the grid |
+| `rows`, `cols` | derived | explicit grid size; both must be given, and together they override `aspect_ratio` |
+
+```js
+const positions = hagrid.gridify_dgrid(data, { aspect_ratio: 1 });
+```
+
+Left to itself the grid is
+
+<Math
+    display
+    tex="\text{rows} = \max\bigl(1,\ \lfloor \sqrt{N \cdot a} \rfloor\bigr), \qquad \text{cols} = \left\lceil \frac{N}{\text{rows}} \right\rceil"
+    caption="N points at cell aspect a."
+/>
+
+```js
+const rows = Math.max(1, Math.floor(Math.sqrt(N * aspect_ratio)));
+const cols = Math.ceil(N / rows);
+```
+
+which is as dense as a grid can be: `rows × cols` is barely more than <Math tex="N" />, so
+almost every cell is occupied. That is the trade — DGrid gives up whitespace, and with it some
+of the freedom to keep a point near where it started.
+
+## Assignment is by rank, not by position
+
+Each split sorts the remaining points along one axis and cuts at a fixed count, so a point's
+cell is decided by its **rank** among its neighbours rather than by scaling its coordinates.
+There is no affine map from input position to cell.
+
+That matters when you draw it: the displacement readout in the demo above is marked with an
+asterisk because the "original" positions are shown in a fair reference frame — the data's
+bounding box scaled onto the lattice — rather than an exact preimage. Read it as indicative.
+
+## Output space
+
+Integer `[column, row]` cells on the `cols × rows` lattice.
+
+## References
+
+<Reference
+    authors="Gladys M. Hilasaca, Wilson E. Marcílio-Jr, Danilo M. Eler, Rafael M. Martins and Fernando V. Paulovich"
+    title="A Grid-Based Method for Removing Overlaps of Dimensionality Reduction Scatterplot Layouts"
+    venue="IEEE Transactions on Visualization and Computer Graphics"
+    volume="30"
+    issue="8"
+    pages="5733–5749"
+    year="2024"
+    doi="10.1109/TVCG.2023.3309941"
+    note="The Distance-preserving Grid this method reimplements."
+/>

@@ -1,0 +1,57 @@
+---
+title: Paintings
+description: Ten subjects, painted — a harder projection and a denser plot.
+sidebar:
+    order: 2
+---
+
+import ImagesShowcase from "../../../../components/ImagesShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+import paintings from "../../../../data/paintings-2d.json";
+
+800 crops from paintings, each showing one of ten subjects — birds, boats, chairs, cows, dogs,
+horses, sheep, trains and dining tables.
+
+<ImagesShowcase client:visible data={paintings} method="as projected" zoom />
+
+## Denser, and harder
+
+Half again as many images as the [flowers](/showcase/images/flowers/), over a projection with
+much less to hold on to. Photographs of flowers vary mostly in colour; paintings vary in style,
+palette, period and brushwork before they vary in subject, so a projection computed from image
+content groups *how a thing was painted* at least as strongly as *what was painted*.
+
+The result is a plot where the classes interleave, and where reading the arrangement means
+reading the pictures. That is a case the glyph showcases cannot make: no encoding of ten
+categorical labels would tell you that two neighbouring crops share a muted ochre palette rather
+than a subject.
+
+## What the grid costs here
+
+More than usual. The projection is dense in the middle and sparse at the edges, so a lattice
+pulls the centre apart hard — watch the displacement readout as you switch layouts. The
+[Lens](/showcase/lens/flowers/) is the other answer to exactly this: leave the projection alone
+and grid only what is under the pointer.
+
+## References
+
+<Reference
+    authors="Elliot J. Crowley and Andrew Zisserman"
+    title="The State of the Art: Object Retrieval in Paintings using Discriminative Regions"
+    venue="British Machine Vision Conference"
+    year="2014"
+    doi="10.5244/C.28.38"
+    note="The paintings these crops come from, labelled with the subject each depicts."
+/>
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="Where this example first appeared."
+/>

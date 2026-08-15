@@ -1,0 +1,59 @@
+---
+title: Spoken digits
+description: Every point is a recording — click one to hear it, once there is room to click.
+sidebar:
+    order: 5
+---
+
+import FsddShowcase from "../../../../components/FsddShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+
+300 recordings of people saying a digit out loud — the even digits, four speakers, fifteen takes
+each. Every point below is one recording, drawn as its spectrogram.
+
+**Click any glyph to hear it.** These are the original recordings, not a reconstruction.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): each 36×36 log-mel
+spectrogram is standardised per feature and reduced to 50 dimensions with
+`new druid.PCA(Z, { d: 50 })`, then `new druid.TSNE(P, { seed: 2, perplexity: 40, epsilon: 5 })`.
+`pnpm fsdd` regenerates it, and `--sweep` re-runs the search that chose those parameters.
+
+<FsddShowcase client:visible />
+
+## Interaction is the argument here
+
+On the raw projection the recordings sit on top of each other, and a glyph you cannot separate is
+a glyph you cannot click. That makes this the one showcase where gridding buys something beyond
+legibility: it buys a **hit target**. Every recording gets its own cell, so every recording can be
+pointed at, played and compared with the one beside it.
+
+The spectrogram is doing no encoding work — it is the signal the projection was computed from,
+drawn small. Time runs left to right, frequency bottom to top, and brightness is energy. A digit
+with a stop consonant shows a vertical break; a long vowel shows a steady horizontal band.
+
+## Two structures in one plot
+
+There are two things a recording can be near its neighbours *for*: it is the same digit, or it is
+the same voice. Both are in the data, and the projection was told about neither — the labels play
+no part in the projection, so the **Colour by** switch changes only the colouring and not the
+layout:
+
+| coloured by | neighbours sharing the label | chance |
+| ---- | ---- | ---- |
+| digit | **93.9%** | 20% |
+| speaker | **91.6%** | 25% |
+
+Measured over each point's ten nearest neighbours. Both are far above chance, which means the
+clusters are not purely one thing or the other — some clumps are a digit, some are a voice, and
+switching the colouring is how you tell which is which. Clicking through one and listening is how
+you confirm it.
+
+## References
+
+<Reference
+    authors="Zohar Jackson, César Souza, Jason Flaks, Yuxin Pan, Hereman Nicolas and Adhish Thite"
+    title="Free Spoken Digit Dataset (FSDD)"
+    year="2018"
+    url="https://github.com/Jakobovski/free-spoken-digit-dataset"
+    note="8 kHz mono recordings, CC BY-SA 4.0. The clips stream from the dataset's own repository when you click a glyph, so the page ships no audio."
+/>

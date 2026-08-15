@@ -1,0 +1,157 @@
+/*
+ * Warm brown carries the structure — links, navigation, headings — and hotpink
+ * is spent only on what is currently selected or currently extreme. Keeping the
+ * loud colour rare is what lets it mean something.
+ *
+ * The greys are warmed to match. Starlight's defaults are blue-tinted, and a
+ * brown on a cold grey goes muddy: the neutral has to lean the same way the
+ * accent does or the accent reads as a mistake.
+ */
+:root {
+    --sl-color-accent-low: #3a2519;
+    --sl-color-accent: #b57f55;
+    --sl-color-accent-high: #ecd0b2;
+
+    --sl-color-white: #fdfaf7;
+    --sl-color-gray-1: #f0e9e2;
+    --sl-color-gray-2: #d6ccc2;
+    --sl-color-gray-3: #a99c90;
+    --sl-color-gray-4: #70655b;
+    --sl-color-gray-5: #4b423a;
+    --sl-color-gray-6: #302a25;
+    --sl-color-gray-7: #221d19;
+    --sl-color-black: #17130f;
+
+    /* Warm enough to belong, dark enough not to be mistaken for the accent. */
+    --sl-color-red: #e0503c;
+    --sl-color-green: #6f9c4f;
+    --sl-color-orange: #d98721;
+
+    --demo-accent: #ff3fa8;
+}
+
+:root[data-theme="light"] {
+    --sl-color-accent-low: #f2e2d2;
+    --sl-color-accent: #8a5a33;
+    --sl-color-accent-high: #3d2716;
+
+    --sl-color-white: #1c1712;
+    --sl-color-gray-1: #2b241d;
+    --sl-color-gray-2: #4b4139;
+    --sl-color-gray-3: #6f6459;
+    --sl-color-gray-4: #958b81;
+    --sl-color-gray-5: #cac1b7;
+    --sl-color-gray-6: #e9e2da;
+    --sl-color-gray-7: #f5f0ea;
+    --sl-color-black: #fffbf7;
+
+    --sl-color-red: #b8341f;
+    --sl-color-green: #4a6d31;
+    --sl-color-orange: #a35f08;
+
+    --demo-accent: #c9106e;
+}
+
+/* There is a dedicated dark logo now, so nothing needs recolouring. */
+.site-title img {
+    height: 2.2rem;
+    width: auto;
+}
+
+/*
+ * The demos are rendered inside `.sl-markdown-content`, which spaces flow
+ * content with an `* + *` top-margin rule and gives form controls their own
+ * sizing. Both leak into the component: the margin rule pushes each successive
+ * control down by a step, producing a staircase where a row should be, and the
+ * control sizing overrode the fixed heights the toolbar grid depends on.
+ *
+ * Svelte's scoped styles cannot win this — Starlight's selectors are no less
+ * specific and load afterwards — so the reset lives here, where it can be
+ * explicit about the elements it neutralises.
+ */
+.sl-markdown-content
+    .hagrid-demo
+    :where(
+        div, p, span, label, select, input, button, svg, image, img,
+        figure, figcaption, dl, dt, dd, ul, ol, li, small, strong, b, em, a
+    ) {
+    margin-top: 0;
+    margin-bottom: 0;
+}
+
+/*
+ * Definition lists inside a demo are a two-column readout, not prose. Browsers
+ * indent `dd` by 40px and Starlight lays lists out for reading, both of which
+ * turn a tooltip's aligned columns into a staircase.
+ */
+.sl-markdown-content .hagrid-demo :where(dd) {
+    margin-inline-start: 0;
+}
+
+.sl-markdown-content .hagrid-demo :where(ul, ol) {
+    padding-inline-start: 0;
+    list-style: none;
+}
+
+.sl-markdown-content .hagrid-demo :where(select, input, button) {
+    line-height: 1;
+    vertical-align: middle;
+}
+
+/* The method tables are wide and must not push the page sideways. */
+.sl-markdown-content table {
+    display: block;
+    overflow-x: auto;
+}
+
+/*
+ * --- KaTeX ---
+ *
+ * KaTeX ships its own stylesheet, which is loaded first; these are the few
+ * places it has to be told about this site rather than the other way round.
+ */
+
+/*
+ * KaTeX emits every formula twice: MathML for screen readers, styled spans for
+ * everyone else. Its own stylesheet hides the MathML copy — but only under the
+ * class names of the version that stylesheet came from, and the renamed classes
+ * in 0.18 mean a mismatched pair shows the MathML as a run of loose characters
+ * beside the real formula. A single override in this site's own namespace
+ * cannot mismatch, and it is the same visually-hidden pattern KaTeX uses, so
+ * the MathML stays available to assistive tech.
+ */
+.sl-markdown-content .katex-mathml {
+    position: absolute;
+    clip-path: inset(50%);
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+}
+
+/* It sets `color: inherit` for the most part, but the surrounding prose is
+   gray-2 and a formula reads as a quotation from the code — brighter, so it
+   separates from the sentence carrying it. */
+.sl-markdown-content .katex {
+    color: var(--sl-color-white);
+    /* 1.21em by default, which next to this site's body text is a size jump
+       rather than an emphasis. */
+    font-size: 1.1em;
+}
+
+/* A displayed formula that does not fit must scroll inside its own box. KaTeX's
+   own `.katex-display` is a block with `overflow: hidden` on the inner row, so
+   without this a long line is silently clipped at the edge of the page. */
+.sl-markdown-content .katex-display {
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.35rem 0;
+    margin: 1.25rem 0;
+}
+
+/* The equation number KaTeX emits for \tag, kept quiet — it is a label, not
+   part of the statement. */
+.sl-markdown-content .katex .tag {
+    color: var(--sl-color-gray-3);
+}

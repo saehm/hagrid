@@ -1,7 +1,7 @@
 # Third-party notices
 
 hagrid is licensed under the GNU Lesser General Public License v3.0 or later
-(see `COPYING.LESSER` and `COPYING`). It incorporates the work below, whose
+(see `LICENCE`). It incorporates the work below, whose
 licence terms are reproduced as those licences require. Including these notices
 does not change hagrid's own licence.
 
@@ -46,13 +46,22 @@ to copyright, so no licence attaches; they are listed as attribution.
 - **`src/gosper.ts`** — Uher, Gajdoš, Snášel, Lai & Radecký, "Hierarchical
   Hexagonal Clustering and Indexing", *Symmetry* 11(6):731, 2019.
   <https://doi.org/10.3390/sym11060731>
-- **`src/dgrid.ts`** — Hilasaca, Marcílio-Jr, Eler, Martins & Paulovich, a
-  distance-preserving grid layout.
+- **`src/dgrid.ts`** — Hilasaca, Marcílio-Jr, Eler, Martins & Paulovich, "A
+  Grid-Based Method for Removing Overlaps of Dimensionality Reduction
+  Scatterplot Layouts", *IEEE TVCG* 30(8):5733–5749, 2024.
+  <https://doi.org/10.1109/TVCG.2023.3309941>
 - **`src/nmap.ts`** — Duarte, Sikansi, Fatore, Fadel & Paulovich, "Nmap: A
-  Novel Neighborhood Preservation Space-filling Algorithm", IEEE TVCG 2014. The
+  Novel Neighborhood Preservation Space-filling Algorithm", *IEEE TVCG*
+  20(12):2063–2071, 2014. <https://doi.org/10.1109/TVCG.2014.2346276> The
   `squared` padding follows
   <https://github.com/sebastian-meier/nmap-squared.js>.
-- **`src/cmds.ts`** — constrained MDS for overlap removal.
+- **`src/cmds.ts`** — Liu, Hu, North & Shen, "CorrelatedMultiples: Spatially
+  Coherent Small Multiples With Constrained Multi-Dimensional Scaling",
+  *Computer Graphics Forum* 37(1):7–18, 2018.
+  <https://doi.org/10.1111/cgf.12526>
+- **`src/gridfit.ts`** — Keim & Herrmann, "The Gridfit Algorithm: An Efficient
+  and Effective Approach to Visualizing Large Amounts of Spatial Data", *IEEE
+  Visualization* '98, pp. 181–188. <https://doi.org/10.1109/VISUAL.1998.745301>
 
 ## Runtime dependencies
 

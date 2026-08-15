@@ -1,0 +1,97 @@
+---
+/**
+ * A formula, rendered by KaTeX at build time.
+ *
+ * Most maths in these pages is written as plain TeX in the Markdown — `$…$`
+ * and `$$…$$` — which remark-math and rehype-katex pick up without any help.
+ * This component is for the two things that syntax cannot do:
+ *
+ *   1. A **captioned** formula. A displayed equation that needs a line saying
+ *      what its symbols mean should carry that line with it rather than leave
+ *      it to a paragraph that a later edit can separate it from.
+ *   2. TeX that would have to survive MDX first. Braces are JSX expressions in
+ *      MDX, so `$\sqrt{n}$` inside a component's props is a syntax error. Here
+ *      the TeX arrives as an ordinary attribute string, where a backslash and a
+ *      brace are just characters.
+ *
+ * Both render through the same KaTeX as the Markdown path, so a formula looks
+ * identical whichever way it was written.
+ *
+ * ```mdx
+ * <Math tex="\Theta(\log n)" />
+ * <Math display tex="d_{ij} = l_{ij} + \delta_{ij}" caption="…" />
+ * ```
+ */
+import katex from "katex";
+
+interface Props {
+    /** The formula, as TeX. */
+    tex: string;
+    /** Set it off on its own centred line rather than running it into the text. */
+    display?: boolean;
+    /** A line under a displayed formula, for what the symbols mean. */
+    caption?: string;
+    /** Read aloud in place of the markup. Defaults to the TeX itself. */
+    label?: string;
+}
+
+const { tex, display = false, caption, label }: Props = Astro.props;
+
+/*
+ * `throwOnError` deliberately: a typo should fail the build, not ship a line of
+ * red TeX to a reader. It matches the rehype-katex options, so the two paths
+ * cannot disagree about what is valid.
+ */
+const html = katex.renderToString(tex, {
+    displayMode: display,
+    throwOnError: true,
+    strict: "warn",
+    output: "htmlAndMathml",
+});
+---
+
+{
+    display ? (
+        <figure class="math-block">
+            {/* The formula scrolls inside its own box. A long one must never
+                widen the page — that would put the prose in a horizontal
+                scroller too, on every screen narrow enough to trigger it. */}
+            <div class="math-scroll" role="math" aria-label={label ?? tex}>
+                <Fragment set:html={html} />
+            </div>
+            {caption && <figcaption>{caption}</figcaption>}
+        </figure>
+    ) : (
+        <span class="math-inline" role="math" aria-label={label ?? tex}>
+            <Fragment set:html={html} />
+        </span>
+    )
+}
+
+<style>
+    .math-block {
+        margin: 1.25rem 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+    .math-scroll {
+        overflow-x: auto;
+        overflow-y: hidden;
+        /* Room for the scrollbar when one appears, so it cannot sit on top of a
+           subscript on the bottom line. */
+        padding: 0.15rem 0;
+    }
+    figcaption {
+        font-size: var(--sl-text-xs);
+        line-height: 1.55;
+        color: var(--sl-color-gray-3);
+        text-align: center;
+    }
+    /* Inline maths sits in a line of prose, so it must not change that line's
+       height; KaTeX's own vertical struts otherwise push the leading around. */
+    .math-inline {
+        display: inline-block;
+        vertical-align: baseline;
+    }
+</style>

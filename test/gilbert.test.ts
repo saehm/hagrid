@@ -184,14 +184,20 @@ describe("gridify_gilbert", () => {
 
     it("honours an explicit grid and rejects one that is too small", () => {
         const data: Point[] = Array.from({ length: 30 }, () => [r() * 10, r() * 10]);
-        const positions = gridify_gilbert(data, { width: 10, height: 5 });
+        const positions = gridify_gilbert(data, { cols: 10, rows: 5 });
         for (const [x, y] of positions) {
             expect(x).toBeGreaterThanOrEqual(0);
             expect(x).toBeLessThan(10);
             expect(y).toBeGreaterThanOrEqual(0);
             expect(y).toBeLessThan(5);
         }
-        expect(() => gridify_gilbert(data, { width: 4, height: 4 })).toThrow(/cells for/);
+        expect(() => gridify_gilbert(data, { cols: 4, rows: 4 })).toThrow(/cells for/);
+    });
+
+    it("rejects a half-given grid rather than silently deriving one", () => {
+        const data: Point[] = Array.from({ length: 30 }, () => [r() * 10, r() * 10]);
+        expect(() => gridify_gilbert(data, { cols: 10 })).toThrow(/together/);
+        expect(() => gridify_gilbert(data, { rows: 5 })).toThrow(/together/);
     });
 
     it("spreads points out when given whitespace", () => {

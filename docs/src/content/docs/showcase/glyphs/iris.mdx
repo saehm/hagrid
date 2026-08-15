@@ -1,0 +1,164 @@
+---
+title: Iris
+description: Why gridify at all — trading exact position for room to draw a glyph.
+sidebar:
+    order: 1
+---
+
+import IrisShowcase from "../../../../components/IrisShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+
+A dot in a scatterplot carries two numbers: where it is. Everything else about the item — the
+measurements that produced the projection in the first place — is thrown away by the time it
+reaches the screen.
+
+A glyph carries more. Draw each point as a small figure whose parts encode the original
+measurements and the plot answers questions the dots cannot: not just *which items are similar*,
+but *what they are actually like*, and whether two neighbours are near each other for the same
+reason.
+
+The catch is room. A dot needs a pixel; a glyph needs space, and a projection does not leave
+any. **That is the problem these techniques exist to solve** — and the trade they ask for is
+position: exact coordinates, in exchange for a cell to draw in.
+
+## The example
+
+150 iris flowers, 50 each of three species, measured on four dimensions — the length and width
+of the sepals and of the petals. Projected to two dimensions with UMAP, each drawn as a flower
+carrying its own four measurements.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): the four columns
+are standardised, then `new druid.UMAP(Z, { seed: 1212 })`. `pnpm iris` regenerates it.
+
+<IrisShowcase client:visible method="as projected" />
+
+It opens on the raw projection at a glyph size of 2, and the flowers are already a thicket:
+**203 overlapping pairs**. Now try to fix it by shrinking them — that is the obvious move, and
+it is the one that fails. The size at which the overlaps finally reach zero is **0.08**, because
+two of the 150 flowers land 1.5 pixels apart and that single pair caps the glyph for the whole
+plot. At 0.08 there is nothing to read. You have removed the overlaps by removing the
+information.
+
+Switch **Layout** instead. Each flower moves to its own cell, and the glyph that fits is set by
+the cell rather than by the closest accident in the data:
+
+| layout | cell | glyph | versus projected |
+| ---- | ---- | ---- | ---- |
+| as projected | 1.5 px | 0.08 | — |
+| Gilbert | 41.8 px | 2.32 | **28×** |
+| DGrid | 37.1 px | 2.06 | 25× |
+| Gosper | 30.2 px | 1.68 | 20× |
+| Hilbert | 27.2 px | 1.51 | 18× |
+| NMap | 25.2 px | 1.40 | 17× |
+| GridFit | 24.0 px | 1.33 | 16× |
+
+An order of magnitude more glyph, with no overlaps at all — and the arrangement survives, so
+the three species still read as three groups.
+
+Every row is measured with `whitespace: 1`, one cell per flower, so the techniques are compared
+like for like. The demo itself opens Gilbert at `2.4` instead — a smaller glyph, 1.48, in
+exchange for a quarter of the displacement. That trade is the subject of the next section, and
+the slider is right there to move it.
+
+Note where Gosper lands. It provisions cells in powers of seven, so it is usually holding far
+more of them than it needs — and it still beats Hilbert here. A flower is *round*, and
+Gosper's cells are hexagons, which pack circles better than squares: for the same cell area the
+centres sit about **7.5% further apart**, which is 15.5% more glyph for free. When the glyph is
+round, that is worth reaching for — [more on the Gosper page](/techniques/gosper/).
+
+## Overlap-free by construction
+
+The size is computed, not searched for. A glyph's reach is proportional to its size, so the
+largest one that cannot touch its neighbour follows from the distance to that neighbour:
+
+```
+glyph size = (distance to the closest neighbour) / (2 × furthest reach)
+```
+
+On a lattice that distance *is* the cell pitch — fixed by the technique and the cell count, not
+by where the data fell. Nothing is searched for and nothing needs checking afterwards. That
+guarantee is what you buy; `pnpm verify:iris` re-checks it across all seven layouts and a sweep
+of their parameters, 33 configurations, and fails if a single pair overlaps.
+
+## What it costs, and how much of it you want
+
+Position. Each flower moves to a free cell, so neighbourhoods are preserved but coordinates are
+not — a glyph lands near where it belongs, not exactly where it was.
+
+That is not a fixed price, though. The parameters above the plot set it. Asking for more cells
+than points spreads the lattice out, so every glyph has somewhere close to land — but the cells
+are smaller, so the glyphs are too. The readout shows both sides: the glyph you get, and how
+far the average flower had to move as a share of the plot.
+
+| technique | | glyph | moved |
+| ---- | ---- | ---- | ---- |
+| Gilbert | `whitespace: 1` | **2.32** | 13.8% |
+| | `whitespace: 2` | 1.61 | 4.4% |
+| | `whitespace: 2.4` — the default | 1.48 | 3.5% |
+| | `whitespace: 4` | 1.20 | **1.5%** |
+| Gosper | `whitespace: 1` | **1.68** | 16.3% |
+| | `whitespace: 4` | 0.97 | **1.2%** |
+| Hilbert | `whitespace: 1` | **1.51** | 12.6% |
+| | `whitespace: 2` | 0.73 | **9.6%** |
+
+Pick the end you need: a poster glyph that shows the measurements clearly, or a layout that
+stays faithful to the projection.
+
+`whitespace` is the dial, and it takes any value — it is a multiplier on the cell count, so
+`1.5` asks for half as many cells again as there are points. How faithfully that is honoured
+depends on what the technique can build. Gilbert fills an arbitrary `cols × rows`, so it
+tracks the request continuously; Hilbert and Gosper only exist at whole curve levels, so
+they quantise it to the next power of 4 or 7:
+
+| `whitespace` | Gilbert | Hilbert | Gosper |
+| ---- | ---- | ---- | ---- |
+| 1 | 17×9 = 153 | 4⁴ = 256 | 7³ = 343 |
+| 1.25 | 18×11 = 198 | 256 | 343 |
+| 1.5 | 20×12 = 240 | 256 | 343 |
+| 1.75 | 22×12 = 264 | **4⁵ = 1024** | 343 |
+| 2 | 24×13 = 312 | 1024 | 343 |
+| 3 | 30×16 = 480 | 1024 | **7⁴ = 2401** |
+
+For 150 flowers, Gilbert lands within a couple of percent of what you asked for at every
+step, while Hilbert jumps fourfold between 1.5 and 1.75 and then sits still. That is inherent
+to the curves rather than a limitation of the parameter — and it is why Gilbert is the one to
+reach for when the trade-off itself is what you are tuning.
+
+Displacement is measured against the projection drawn into the same rectangle, since the
+lattice methods answer in grid indices and share no units with the input. It is deliberately
+*not* expressed in cells: dividing by the pitch makes the number climb as cells shrink, which
+inverts the very trade-off it is meant to show.
+
+## References
+
+<Reference
+    authors="Ronald A. Fisher"
+    title="The Use of Multiple Measurements in Taxonomic Problems"
+    venue="Annals of Eugenics"
+    volume="7"
+    issue="2"
+    pages="179–188"
+    year="1936"
+    doi="10.1111/j.1469-1809.1936.tb02137.x"
+    note="The iris measurements themselves, and still the standard small example for this kind of thing."
+/>
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="The techniques this library implements, and their evaluation."
+/>
+
+<Reference
+    authors="Rene Cutura"
+    title="Hagrid — VINCI'21 talk"
+    year="2021"
+    url="https://renecutura.eu/vinci21_hagrid/"
+    note="Where this example and its flower glyph come from."
+/>

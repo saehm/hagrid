@@ -211,9 +211,9 @@ export function gilbert_d2xy(d: number, W: number, H: number): Point {
 /** Parameters for {@link gridify_gilbert}. */
 export interface GilbertParameters {
     /** Grid width in cells. Derived from the data's aspect ratio if omitted. */
-    width?: number;
+    cols?: number;
     /** Grid height in cells. Derived from the data's aspect ratio if omitted. */
-    height?: number;
+    rows?: number;
     /** Spare cells to allow beyond the point count. Defaults to `1` (none). */
     whitespace?: number;
 }
@@ -286,12 +286,17 @@ export function gridify_gilbert(
 
     let W: number;
     let H: number;
-    if (parameters.width !== undefined && parameters.height !== undefined) {
-        W = parameters.width;
-        H = parameters.height;
+    if (parameters.cols !== undefined && parameters.rows !== undefined) {
+        W = parameters.cols;
+        H = parameters.rows;
     } else {
         const target = Math.max(1, Math.ceil(N * (parameters.whitespace ?? 1)));
         [W, H] = gilbert_dimensions(target, dh > 0 ? dw / dh : 1);
+    }
+    // A grid given as only one of the pair is a mistake worth naming: silently
+    // falling back to the derived grid looks like the value was honoured.
+    if ((parameters.cols === undefined) !== (parameters.rows === undefined)) {
+        throw new Error("gridify_gilbert: cols and rows must be given together");
     }
     if (W * H < N) {
         throw new Error(

@@ -43,18 +43,18 @@ export interface GridifyParameters {
     pluslevel?: number;
     /** `hilbert`, `gilbert`: inflates the grid so cells outnumber points. */
     whitespace?: number;
-    /** `gilbert`: explicit grid size. Derived from the data's aspect ratio if omitted. */
-    width?: number;
-    height?: number;
     /** `hilbert`: preserves the data's aspect ratio. */
     keep_aspect_ratio?: boolean;
     /** `gosper`: which way up the hexagons sit. Defaults to `"flat"`. */
     orientation?: HexOrientation;
     /** `dgrid`: cell aspect ratio. Defaults to `1`. */
     aspect_ratio?: number;
-    /** `dgrid`: explicit grid dimensions, overriding `aspect_ratio`. */
-    rows?: number;
+    /**
+     * `gilbert`, `dgrid`: explicit grid dimensions in cells. Both must be given.
+     * For `dgrid` they override `aspect_ratio`; for `gilbert`, `whitespace`.
+     */
     cols?: number;
+    rows?: number;
     /** `cmds`: boundary the layout is confined to. Defaults to the data's square bounds. */
     Gamma?: Bounds;
     /** `cmds`: starting node size. Defaults to a cell of the fitted grid, and shrinks if needed. */
@@ -130,8 +130,8 @@ export function gridify(
             // so a wide dataset is not padded into a mostly-empty square.
             return timed(() =>
                 gridify_gilbert(data, {
-                    width: parameters.width,
-                    height: parameters.height,
+                    cols: parameters.cols,
+                    rows: parameters.rows,
                     whitespace: parameters.whitespace,
                 }),
             );

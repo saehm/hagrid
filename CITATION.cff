@@ -1,0 +1,54 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "hagrid — A JavaScript Library for Removing Overlaps in Scatterplots"
+abstract: >-
+  A JavaScript library that removes overlaps in scatterplots by snapping points
+  onto a grid, using space filling curves and related techniques: Hilbert,
+  generalized Hilbert and Gosper curves, alongside reimplementations of DGrid,
+  constrained MDS, N-Map and GridFit behind a single API.
+type: software
+authors:
+  - family-names: Cutura
+    given-names: Rene
+    orcid: "https://orcid.org/0000-0003-0395-2448"
+    website: "http://renecutura.eu"
+repository-code: "https://github.com/saehm/hagrid"
+url: "https://saehm.github.io/hagrid/"
+license: LGPL-3.0-or-later
+version: 0.2.0
+date-released: "2026-08-15"
+keywords:
+  - scatterplot
+  - overlap-removal
+  - space-filling-curve
+  - hilbert
+  - gosper
+  - visualization
+  - javascript
+preferred-citation:
+  type: article
+  title: "Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+  authors:
+    - family-names: Cutura
+      given-names: Rene
+      orcid: "https://orcid.org/0000-0003-0395-2448"
+    - family-names: Morariu
+      given-names: Cristina
+    - family-names: Cheng
+      given-names: Zhanglin
+    - family-names: Wang
+      given-names: Yunhai
+    - family-names: Weiskopf
+      given-names: Daniel
+    - family-names: Sedlmair
+      given-names: Michael
+      orcid: "https://orcid.org/0000-0001-7048-9292"
+  journal: "Journal of Visualization"
+  publisher:
+    name: Springer
+  volume: 25
+  issue: 6
+  start: 1291
+  end: 1307
+  year: 2022
+  doi: 10.1007/s12650-022-00854-7

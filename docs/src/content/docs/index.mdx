@@ -1,0 +1,46 @@
+---
+title: Hagrid
+description: Removes overlaps in scatterplots using space filling curves.
+template: splash
+hero:
+    tagline: Removes overlaps in scatterplots by snapping points onto a grid.
+    image:
+        alt: The logo
+        light: "../../assets/light-hagrid.svg"
+        dark: "../../assets/dark-hagrid.svg"
+    actions:
+        # Frontmatter, so neither `base` nor the rehype rewriter reaches it —
+        # this one carries the prefix itself.
+        - text: Getting started
+          link: /hagrid/getting-started/
+          icon: right-arrow
+        - text: On GitHub
+          link: https://github.com/saehm/hagrid
+          icon: external
+          variant: minimal
+---
+
+import { CardGrid, Card } from "@astrojs/starlight/components";
+import GridDemo from "../../components/GridDemo.svelte";
+
+When a scatterplot uses glyphs or images instead of points, they overlap, and the plot
+stops being readable. hagrid moves each point to its own cell on a grid, keeping it as
+close to where it started as the grid allows.
+
+<GridDemo client:visible method="hilbert" dataset="clusters" n={400} />
+
+<CardGrid>
+    <Card title="Seven techniques" icon="seti:grid">
+        Three built on space filling curves — Hilbert, Gilbert, Gosper — and four reimplementations of published
+        methods: DGrid, CMDS, NMap, GridFit.
+    </Card>
+    <Card title="One entry point" icon="rocket">
+        `gridify(data, method, parameters)` for all of them, or call a method directly to skip the parameter defaulting.
+    </Card>
+    <Card title="Honest about limits" icon="warning">
+        Each technique page says what the method refuses and what it gets wrong, with a demo you can make fail.
+    </Card>
+    <Card title="No framework" icon="approve-check">
+        ESM, CommonJS and a browser build, TypeScript types included, one runtime dependency.
+    </Card>
+</CardGrid>

@@ -40,23 +40,26 @@ export default [
     },
     {
         input: "src/main.ts",
-        output: [
-            { file: "dist/hagrid.umd.js", format: "umd", name: "hagrid", banner, sourcemap: true },
-            {
-                file: "dist/hagrid.min.js",
-                format: "umd",
-                name: "hagrid",
-                banner,
-                sourcemap: true,
-                plugins: [terser()],
-            },
-        ],
+        output: {
+            file: "dist/hagrid.umd.js",
+            format: "umd",
+            name: "hagrid",
+            banner,
+            sourcemap: true,
+            plugins: [terser()],
+        },
         plugins: plugins(),
     },
     {
+        // Two identical declaration bundles. Under node16/nodenext resolution a
+        // `require` of this package looks for types next to the CJS entry and in
+        // CJS form, so the ESM .d.ts alone leaves those consumers untyped.
         input: "src/main.ts",
         external,
-        output: { file: pkg.types, format: "es" },
+        output: [
+            { file: "dist/hagrid.d.ts", format: "es", sourcemap: true },
+            { file: "dist/hagrid.d.cts", format: "es", sourcemap: true },
+        ],
         plugins: [dts()],
     },
 ];

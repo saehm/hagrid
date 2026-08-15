@@ -1,0 +1,112 @@
+---
+title: Hilbert
+description: Snaps points to a Hilbert curve cell on a square, power-of-two grid.
+sidebar:
+    order: 1
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+
+Each point is encoded to its cell on a Hilbert curve, and a contested cell is resolved by
+walking the curve outward to the nearest free one. Because neighbours along a Hilbert curve
+are neighbours in the plane, a displaced point lands close to where it started.
+
+The grid is square, <Math tex="2^L" /> cells on a side at level <Math tex="L" />, for
+<Math tex="4^L" /> cells in all.
+
+<GridDemo client:visible method="hilbert" n={400} />
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `whitespace` | `1` | inflates the grid so cells outnumber points |
+| `pluslevel` | `0` | extra curve levels beyond the fitted minimum — each one quadruples the cells |
+| `keep_aspect_ratio` | `false` | pads the shorter axis so the data's shape survives the mapping |
+
+`gridify` picks the level for you — the smallest one whose <Math tex="4^L" /> cells hold
+<Math tex="N" /> points with the requested whitespace:
+
+<Math
+    display
+    tex="L = \left\lceil \frac{\log_2 (N \cdot w)}{2} \right\rceil + \texttt{pluslevel}"
+    caption="N points, w the whitespace factor. The 2 in the denominator is log₂4 — each level quadruples the cell count, so a level is worth two bits."
+/>
+
+```js
+const level = Math.ceil(Math.log2(N * whitespace) / Math.log2(4)) + pluslevel;
+```
+
+Call `gridify_hilbert` directly and you pass `level` yourself.
+
+```js
+const { positions } = hagrid.gridify(data, "hilbert", { whitespace: 2 });
+const positions = hagrid.gridify_hilbert(data, { level: 6 });
+```
+
+## Output space
+
+Integer cell indices on a <Math tex="2^L \times 2^L" /> lattice, not the input's coordinates. To draw
+the originals alongside, project them with the same affine the method uses — see
+[Getting started](/getting-started/#which-space-do-i-get-back).
+
+## Encoding directly
+
+`hilbert_encode` and `hilbert_decode` are exported, and are fast enough to use per frame:
+
+```js
+const index = hagrid.hilbert_encode([x, y], size);   // 10.1 M/s
+const [cx, cy] = hagrid.hilbert_decode(index, size); //  2.0 M/s
+```
+
+`size` must be a power of two. The index is kept in floating point — exact to
+<Math tex="2^{53}" />, so level 26 — and anything beyond `HILBERT_MAX_LEVEL`, or a
+non-power-of-two size, is rejected outright rather than silently returning wrong coordinates.
+
+## When it goes wrong
+
+**Elongated data.** The grid must be square, so a wide dataset is either stretched out of
+shape or padded into a mostly-empty square. At a 1000×10 extent roughly 1% of the cells are
+usable, so holding the same number of points needs about 100× more of them:
+
+| N, at 1000×10 aspect | Gilbert | Hilbert (padded square) |
+| ---- | ---- | ---- |
+| 1 000 | 1 000 cells (250×4) | 262 144 |
+| 10 000 | 10 000 cells (1000×10) | 1 048 576 |
+| 100 000 | 100 000 cells (3125×32) | 16 777 216 |
+
+Switch the demo above to the elongated dataset to see it. [Gilbert](/techniques/gilbert/)
+is the same curve without the square constraint.
+
+**Exact duplicates.** The collision walk resolves most contested cells but not all of them,
+so a few points can end up sharing. On a 200-point set with 195 distinct positions it
+returns 196 distinct cells. This is pre-existing behaviour, byte-identical to `0.1.1`, and
+kept that way deliberately. [GridFit](/techniques/gridfit/) and
+[Gilbert](/techniques/gilbert/) handle the same input cleanly.
+
+## References
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="The method this page documents."
+/>
+
+<Reference
+    authors="David Hilbert"
+    title="Ueber die stetige Abbildung einer Linie auf ein Flächenstück"
+    venue="Mathematische Annalen"
+    volume="38"
+    pages="459–460"
+    year="1891"
+    doi="10.1007/BF01199431"
+    note="The curve itself."
+/>

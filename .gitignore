@@ -3,3 +3,7 @@ node_modules
 dist
 *.tsbuildinfo
 .tmp
+
+# Working notes, kept out of the repository on purpose.
+DOCU.md
+LOG.md

@@ -1,0 +1,115 @@
+name: Release
+
+# One workflow for the whole tag: verify once, build once, then publish to npm
+# and cut the GitHub release from the same artifacts. Splitting it in two would
+# re-run the suite twice on one commit and leave the two halves able to disagree
+# about what shipped.
+on:
+    push:
+        tags:
+            - 'v*'
+    workflow_dispatch:
+
+concurrency:
+    group: release-${{ github.ref }}
+    cancel-in-progress: false
+
+jobs:
+    verify:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+
+            - run: pnpm install --frozen-lockfile
+
+            # A tag that disagrees with package.json publishes the wrong version
+            # under the right name, which cannot be undone on npm. Fail first.
+            - name: Tag must match package.json
+              if: startsWith(github.ref, 'refs/tags/v')
+              run: |
+                  tag="${GITHUB_REF_NAME#v}"
+                  pkg="$(node -p "require('./package.json').version")"
+                  if [ "$tag" != "$pkg" ]; then
+                      echo "tag $GITHUB_REF_NAME implies $tag, package.json says $pkg" >&2
+                      exit 1
+                  fi
+                  echo "publishing $pkg"
+
+            - run: pnpm typecheck
+            - run: pnpm test
+
+            # Publish what this commit builds, not whatever dist/ happens to be
+            # committed.
+            - run: pnpm build
+
+            - uses: actions/upload-artifact@v7
+              with:
+                  name: dist
+                  path: dist/
+
+    publish-npm:
+        needs: verify
+        runs-on: ubuntu-latest
+        permissions:
+            contents: read
+            # Lets the runner mint the short-lived OIDC token npm exchanges for
+            # publish rights, so no long-lived token is stored. Requires a trusted
+            # publisher registered for this package on npmjs.com, naming this
+            # repository and this workflow file.
+            id-token: write
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: 'pnpm'
+                  registry-url: https://registry.npmjs.org/
+
+            - run: pnpm install --frozen-lockfile
+
+            - uses: actions/download-artifact@v8
+              with:
+                  name: dist
+                  path: dist/
+
+            # Node 22 ships npm 10, which predates trusted publishing; pnpm has
+            # no OIDC support at all.
+            - run: npm install -g npm@latest
+
+            # `prepublishOnly` would rebuild here; the artifact is already the
+            # verified build, so skip the lifecycle script rather than run an
+            # unverified second one.
+            - run: npm publish --access public --provenance --ignore-scripts
+
+    github-release:
+        needs: verify
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+
+            - uses: actions/download-artifact@v8
+              with:
+                  name: dist
+                  path: dist/
+
+            - uses: softprops/action-gh-release@v3
+              with:
+                  tag_name: ${{ github.ref_name }}
+                  files: dist/*
+                  generate_release_notes: true
+                  draft: false
+                  prerelease: false

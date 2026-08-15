@@ -1,0 +1,148 @@
+---
+title: CMDS
+description: Constrained MDS — iterative and animatable, returning each step of the optimisation.
+sidebar:
+    order: 5
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+import { Aside } from "@astrojs/starlight/components";
+
+CMDS implements constrained MDS (Liu, Hu, North & Shen, *Computer Graphics Forum* 37(1),
+2018). It alternates stress-majorization updates with rebuilding a Delaunay proximity graph,
+augmented with edges for overlapping pairs, until every item is inside the boundary
+<Math tex="\Gamma" /> with no overlap — then snaps the result to a grid.
+
+The stress it descends is the usual weighted one, over the edges of that graph rather than
+over all pairs:
+
+<Math
+    display
+    tex="\sigma(X) = \sum_{(i,j) \in E} w_{ij} \bigl( \lVert x_i - x_j \rVert - d_{ij} \bigr)^2, \qquad w_{ij} = \frac{1}{d_{ij}^{2}}"
+    caption="d_ij is the ideal distance for the pair and x_i the current position. Weighting by 1/d² is what makes a short edge stiffer than a long one, so near neighbours are preserved at the expense of far ones."
+/>
+
+<Aside type="caution" title="What to expect">
+CMDS rarely satisfies its own end condition, so it usually runs the full iteration budget.
+A run that stops with overlaps left can snap two nodes into one cell, and inputs with exact
+duplicates come back non-finite: coincident points have <Math tex="d_{ij} = 0" />, so the
+weight <Math tex="1 / d_{ij}^{2}" /> is infinite.
+</Aside>
+
+<GridDemo
+    client:visible
+    method="cmds"
+    n={300}
+    max_points={800}
+    datasets={["clusters", "uniform", "ring", "moons", "spiral", "line"]}
+/>
+
+Drag the **Round** slider to scrub through the optimisation, or press **Play** to watch it
+run. The displacement histogram updates with the frame, so you can see the tail of far-flung
+points get pulled in — and see it stop improving.
+
+## It returns a generator
+
+Alone among the methods, CMDS does not produce a final array. It yields each intermediate
+layout so you can animate the optimisation; the last yield is the grid-snapped result.
+
+```js
+const { steps } = hagrid.gridify(data, "cmds");
+for (const [layout, proximity_graph, size] of steps) {
+    positions = layout;
+    pitch = size;   // the node size in force, which changes as the grid grows
+}
+```
+
+The generator is synchronous, so the loop above runs the whole optimisation in one blocking
+pass and freezes the page. Drive it a step at a time instead:
+
+```js
+const step = () => {
+    const { value, done } = steps.next();
+    if (done) return;
+    draw(value[0], value[2]);
+    requestAnimationFrame(step);
+};
+step();
+```
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `Gamma` | the data's bounding square | boundary <Math tex="\Gamma" /> the layout is confined to, as a `Bounds` |
+| `size` | a cell of the `m × n` grid | *starting* node size; shrinks if the layout does not converge |
+| `alpha` | `0.1` | weight of the boundary constraint |
+| `max_iter` | `150` | rounds before the grid is grown |
+| `max_rescales` | `8` | how many times the grid may grow before giving up |
+| `inner_iterations` | `20` | inner iterations per round, <Math tex="N" /> in Algorithm 1 |
+
+## `max_iter` is the quality dial
+
+Overlaps do fall at a fixed node size — 538 down to 24 over 1830 rounds in one measurement —
+so the layout largely resolves itself when given the chance. Growing the grid too eagerly
+instead crushes the nodes:
+
+| rounds before growing | final packing |
+| ---- | ---- |
+| 10 | 2% |
+| 200 | 33% |
+| 800 | 71% |
+
+71% is what the paper reports. Cost is linear in `max_iter`, so the default of 150 trades some
+packing for responsiveness. Push the slider in the demo up and watch the cells get larger and
+the run get slower.
+
+## The update rule
+
+Each inner iteration moves every node to a weighted average of where its neighbours would
+like it to be, with the boundary pulling as one extra neighbour of weight <Math tex="\alpha" />:
+
+<Math
+    display
+    tex="x_i \leftarrow \frac{\sum_{j} w_{ij} \left( x_j + d_{ij} \dfrac{x_i - x_j}{\lVert x_i - x_j \rVert} \right) + \alpha\, \gamma(x_i)}{\sum_{j} w_{ij} + \alpha}"
+    caption="γ(x_i) is the nearest point on the boundary Γ — equal to x_i when the node is already inside, so the term only bites on nodes that have escaped. Raising α pulls the layout into Γ harder at the cost of the distances."
+/>
+
+## Why the rescale loop is necessary
+
+Without it the layout oscillates forever. The overlap correction enters the ideal distance as
+
+<Math display tex="d_{ij} = l_{ij} + \delta_{ij}" />
+
+where <Math tex="l_{ij}" /> is the pair's distance in the original layout and
+<Math tex="\delta_{ij}" /> their current overlap. Once a pair is separated
+<Math tex="\delta_{ij}" /> drops back to zero, the spring pulls them together again, and the
+overlap returns — measured overlap alternated exactly <Math tex="0 \to 5.19 \to 0" /> with
+period two.
+
+The convergence machinery of §4.2 is what makes the update rule usable: the `m × n` grid that
+sets the node size, <Math tex="\Gamma" /> inset by half a node so a node whose centre is
+inside is drawn completely, the input uniformly scaled into <Math tex="\Gamma" />, and growing
+the grid when a run does not converge.
+
+## Output space
+
+The input's own coordinate space, snapped so centres land on
+
+<Math display tex="\left(k + \tfrac{1}{2}\right) \cdot \texttt{size}, \qquad k \in \mathbb{Z}" />
+
+Cell boundaries are therefore the multiples of `size` — which is what the demo's grid is
+anchored to.
+
+## References
+
+<Reference
+    authors="Xiaotong Liu, Yifan Hu, Stephen North and Han-Wei Shen"
+    title="CorrelatedMultiples: Spatially Coherent Small Multiples With Constrained Multi-Dimensional Scaling"
+    venue="Computer Graphics Forum"
+    volume="37"
+    issue="1"
+    pages="7–18"
+    year="2018"
+    doi="10.1111/cgf.12526"
+    note="The constrained MDS this method implements. Section 4.2 is the convergence machinery described above; Algorithm 1 is the iteration."
+/>

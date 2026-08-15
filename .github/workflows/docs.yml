@@ -1,0 +1,65 @@
+name: docs
+
+on:
+    push:
+        branches: [master]
+    pull_request:
+    workflow_dispatch:
+
+# One deploy at a time; a queued run supersedes an older one rather than racing it.
+concurrency:
+    group: pages
+    cancel-in-progress: false
+
+jobs:
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - uses: pnpm/action-setup@v6
+
+            - uses: actions/setup-node@v7
+              with:
+                  node-version: 22
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
+
+            # The docs import the *built* package through the workspace link, so
+            # the library has to be built before the site — and a library that
+            # does not typecheck should not produce a site that claims it does.
+            - run: pnpm run typecheck
+            - run: pnpm run test
+            - run: pnpm run build
+
+            # The demo layer agreeing with the library, and the showcase glyph
+            # sizing being overlap-free across every technique and parameter
+            # sweep. Both are plain Node, so they run before the site build and
+            # fail here rather than shipping a plot that is quietly wrong.
+            - run: pnpm --filter @saehrimnir/hagrid-docs verify
+            - run: pnpm --filter @saehrimnir/hagrid-docs verify:iris
+            - run: pnpm --filter @saehrimnir/hagrid-docs verify:glyphs
+
+            # Runs astro build, which runs TypeDoc. A broken link, a KaTeX typo
+            # or a type error in a demo component fails here.
+            - run: pnpm --filter @saehrimnir/hagrid-docs build
+
+            - uses: actions/upload-pages-artifact@v5
+              with:
+                  path: docs/dist
+
+    deploy:
+        # Pull requests get the full build, but nothing is published from them.
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        needs: build
+        runs-on: ubuntu-latest
+        environment:
+            name: github-pages
+            url: ${{ steps.deploy.outputs.page_url }}
+        permissions:
+            pages: write
+            id-token: write
+        steps:
+            - id: deploy
+              uses: actions/deploy-pages@v5

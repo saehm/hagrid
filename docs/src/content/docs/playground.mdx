@@ -1,0 +1,39 @@
+---
+title: Playground
+description: Every method, over datasets chosen to show where each one shines and where it struggles.
+---
+
+import GridDemo from "../../components/GridDemo.svelte";
+
+Every overlap-removal method in the library, over datasets chosen to show where each one shines
+and where it struggles. Points are coloured by where they started, so you can see how much of
+the original structure survives.
+
+<GridDemo client:visible pick_method method="gosper" n={600} />
+
+## Colour is the point
+
+Each point is tinted by its original position — hue by direction from the centre, depth by
+distance. A layout that keeps neighbours together keeps the colours smooth. Scrambled colour
+means the spatial structure was lost, which is the one thing no summary number shows you
+directly.
+
+## Where they differ
+
+Try **Elongated**: Hilbert must pad to a square and squashes it, Gilbert matches the shape.
+Then switch to NMap-squared on the same data — its cells stretch with the region rather than
+staying square, which is the difference between equalising area and equalising shape.
+
+Try **Integer lattice** or **Single column**: NMap refuses them outright, GridFit takes them
+in its stride. Try **Heavy duplicates** with CMDS: coincident points have an ideal distance of
+zero, so the weight `1/d²` is infinite and every position comes back non-finite.
+
+## Reading the numbers
+
+**Distinct cells** turns red the moment two points share one — that is the property every
+method here is supposed to guarantee, and the ones that miss it are named on their own pages.
+
+**Mean displacement** is in cell pitches, not pixels or fractions of the plot, so it means the
+same thing across methods that answer in different units. The histogram beneath the plot shows
+the whole distribution: a method can post a respectable mean and still fling a handful of
+points clear across the layout, and that tail is what a reader actually notices.

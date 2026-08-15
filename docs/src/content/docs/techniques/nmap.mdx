@@ -1,0 +1,141 @@
+---
+title: NMap
+description: A space filling treemap that partitions the plot area into one rectangle per point.
+sidebar:
+    order: 6
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+import { Aside } from "@astrojs/starlight/components";
+
+NMap partitions the plotting area into one rectangle per point, cutting each region at the
+midpoint between the two halves of its points. Left to itself it gives every point an equal
+*area* rather than an equal shape, so the cells vary in proportion; `squared` pads the point
+set so that they come out uniform.
+
+<GridDemo client:visible method="nmap" n={300} datasets={["clusters", "uniform", "line", "lattice"]} />
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `BB` | the data's bounding box | region to fill |
+| `squared` | `false` | pads the input so it fills a square *number* of cells |
+
+## The rectangles are available
+
+Which is what you want if you are drawing a treemap rather than moving points:
+
+```js
+const cells = hagrid.nmap_regions(data);   // [{ x, y, width, height, index }, ...]
+```
+
+They tile the bounding box exactly — 100% coverage at every N. (They did not always: `sizes()`
+gave the first half's share to *both* halves, which left a gap down the middle on every odd
+count. N = 8 was correct only because an even split has equal shares, so the wrong one happened
+to be right.)
+
+## It needs spread on both axes
+
+<Aside type="danger" title="Quantised data will throw">
+Switch the demo to the **integer lattice** dataset. All 300 points are distinct, and NMap
+still refuses it.
+</Aside>
+
+NMap cuts a region at the midpoint between the two halves of its points. If every point in
+that region shares the split coordinate, the boundary lands on the region's own edge, one side
+gets zero extent, and the affine scale becomes <Math tex="\text{share} / 0" />.
+
+**Distinct points are not enough.** All of these are 100% unique and all of them fail:
+
+| input | n | outcome |
+| ---- | ---- | ---- |
+| four points on a vertical line | 4 | throws |
+| 10×10 integer lattice | 100 | throws |
+| coordinates rounded to integers | 194 | throws |
+| points along a diagonal | 16 | fine |
+| continuous random | 200 | fine |
+
+The property that matters is spread on *both* axes within **every subdivision**, which is why
+the diagonal survives — every <Math tex="x" /> and every <Math tex="y" /> distinct — and the
+lattice does not. Quantised data (counts, scores, rounded measurements) commonly trips it.
+
+It throws with the offending axis named rather than returning a layout full of `null`s. Jitter
+the input slightly, or use [Gilbert](/techniques/gilbert/) or
+[Hilbert](/techniques/hilbert/), which have no such requirement.
+
+A real fix would fall back to a proportional split when a region is degenerate, placing tied
+points in adjacent cells. That is not done yet.
+
+## `squared` makes the cells uniform
+
+`squared` is a port of [nmap-squared.js](https://github.com/sebastian-meier/nmap-squared.js).
+It normalises the points into the region keeping the data's aspect, then pads the set to a
+square *number* of points by laying candidate fillers along the perimeter and repeatedly
+taking whichever sits furthest from anything already placed. The fillers carry no index and
+are dropped from the output, so they show up as empty cells.
+
+Padding to a full grid is not by itself enough. The subdivision halves a region's point count
+at each step: while the count stays even both halves are equal and every cut falls on the same
+lines, but the first **odd** count splits unevenly and nothing below it lines up again. The
+cells are uniform exactly when the padded count is a power of two.
+
+The reference rounds `grid_size` up to a multiple of four, which does not give that —
+<Math tex="20^2 = 400" /> reaches 25 and breaks. This port rounds up to a power of two,
+
+<Math
+    display
+    tex="\texttt{grid\_size} = 2^{\left\lceil \log_2 \lceil \sqrt{N} \rceil \right\rceil}"
+    caption="so grid_size² is a power of two as well, and every halving stays even the whole way down."
+/>
+
+| padded count | cell aspect | distinct widths |
+| ---- | ---- | ---- |
+| multiple of 4 — 400 at N = 300 | 1.00–3.21, median 2.36 | 7 |
+| power of two — 1 024 at N = 300 | 1.00 throughout | **1** |
+
+Uniform is not the same as square: the aspect is the region's, so the cells are square when
+the region is. Cell *areas* were always uniform, to 0.0%; it is the shape that padding fixes.
+
+It costs up to four times the cells — 724 fillers at N = 300 rather than 100 — so filler
+placement had to get cheaper: each candidate is now measured only against the points appended
+since it last ran, and the emptiest is taken directly instead of by sorting all ~92 000 every
+round. Neither changes which filler is chosen, and N = 300 went from 30 s to 1.5 s. It still
+grows steeply with the filler count: 5 ms at N = 40, 1.5 s at N = 300, 61 s at N = 2000.
+
+Two more things to know. `squared` does not rescue degenerate input — padding adds points, not
+spread — so the cases in the table above still throw. And when no fillers are needed at all it
+can overlap: four collinear points pad to a <Math tex="2 \times 2" /> grid, so nothing is
+added, and the one-unit offset the normalisation applies leaves the split non-degenerate but
+meaningless, putting two of the four in one cell.
+
+Two deliberate deviations from the reference: the power-of-two grid above, and the filler
+jitter, which comes from a seeded generator rather than `Math.random` — that returned three
+different layouts across five identical calls. The placement rule is untouched in both cases.
+
+## Output space
+
+The input's own coordinate space.
+
+## References
+
+<Reference
+    authors="Felipe S. L. G. Duarte, Fabio Sikansi, Francisco M. Fatore, Samuel G. Fadel and Fernando V. Paulovich"
+    title="Nmap: A Novel Neighborhood Preservation Space-filling Algorithm"
+    venue="IEEE Transactions on Visualization and Computer Graphics"
+    volume="20"
+    issue="12"
+    pages="2063–2071"
+    year="2014"
+    doi="10.1109/TVCG.2014.2346276"
+    note="The treemap this method reimplements."
+/>
+
+<Reference
+    authors="Sebastian Meier"
+    title="nmap-squared.js"
+    url="https://github.com/sebastian-meier/nmap-squared.js"
+    note="The padding the squared option ports: filler points along the perimeter until the count fills a grid. This port deviates in two places — a power-of-two grid rather than a multiple of four, and a seeded generator for the filler jitter."
+/>

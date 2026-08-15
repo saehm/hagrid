@@ -1,0 +1,118 @@
+---
+title: Gilbert
+description: A generalized Hilbert curve on a grid that matches the data's aspect ratio.
+sidebar:
+    order: 2
+    badge: New
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+
+Gilbert is a generalized Hilbert curve that fills an arbitrary `cols × rows` rectangle,
+so the grid can simply match the data instead of being padded into a square. It has no
+power-of-two constraint and no level ceiling.
+
+<GridDemo client:visible method="gilbert" dataset="elongated" n={400} />
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `whitespace` | `1` | spare cells to allow beyond the point count |
+| `cols`, `rows` | derived | explicit grid size in cells; both must be given, and together they override `whitespace` |
+
+```js
+const { positions } = hagrid.gridify(data, "gilbert");
+const { positions } = hagrid.gridify(data, "gilbert", { cols: 200, rows: 5 });
+```
+
+Giving only one of `cols` and `rows` throws rather than quietly falling back to the derived
+grid.
+
+## Give it slack
+
+The library defaults `whitespace` to `1` — a grid with just enough cells — but the demo above
+opens at **2.4**, and it is worth knowing why. Every point needs its own cell, so a grid with
+barely more cells than points leaves the curve nowhere to put a contested one, and the
+collision walk carries it a long way down the index before it finds a gap.
+
+Mean displacement, in cells, over 400 points:
+
+| dataset | `whitespace: 1` | `2` | **`2.4`** | `4` | `6` |
+| ---- | ---- | ---- | ---- | ---- | ---- |
+| uniform | 1.73 | 0.57 | **0.50** | 0.47 | 0.44 |
+| clusters | 4.73 | 2.00 | **1.76** | 0.88 | 0.63 |
+| elongated | 5.17 | 0.55 | **0.55** | 0.46 | 0.43 |
+| spiral | 4.46 | 1.54 | **1.50** | 0.90 | 0.75 |
+
+Nearly all of the damage is done in the first stretch, between 1 and 2. By 2.4 the layout has
+captured 72–97% of the reduction available at any slack whatsoever, and past it you are
+spending empty cells for very little — a plot that is mostly gaps to buy a tenth of a cell.
+
+Unlike [Hilbert](/techniques/hilbert/) and [Gosper](/techniques/gosper/), Gilbert can honour
+any value continuously, because it builds an arbitrary `cols × rows` rather than a whole curve
+level. Those two are quantised, so the same dial does nothing until it crosses a power of four
+or seven — which is why their demos are left at `1`.
+
+Left to itself, `gilbert_dimensions(n, aspect)` picks the grid. Both dimensions are
+integers, so only certain shapes exist at a given cell count and the best one is not always
+nearest <Math tex="\sqrt{n / a}" />. Seven heights either side of that ideal are scored, and
+the lowest wins:
+
+<Math
+    display
+    tex="\operatorname{score}(h) = \underbrace{\left| \log \frac{w / h}{a} \right|}_{\text{shape}} + \tfrac{1}{4} \underbrace{\left| \log \frac{w \cdot h}{n} \right|}_{\text{slack}}, \qquad w = \left\lceil n / h \right\rceil"
+    caption="a is the requested aspect and w × h the candidate grid. Both terms are logs, which is what makes twice too wide cost exactly what twice too tall does; a plain ratio would quietly prefer one of them. The ¼ says a grid of the right shape is worth four times more than one with no cells to spare."
+/>
+
+## Why it beats Hilbert on elongated data
+
+| N, at 1000×10 aspect | Gilbert | Hilbert (padded square) |
+| ---- | ---- | ---- |
+| 1 000 | 1 000 cells (250×4) | 262 144 |
+| 10 000 | 10 000 cells (1000×10) | 1 048 576 |
+| 100 000 | 100 000 cells (3125×32) | 16 777 216 |
+
+It costs about 6× more per query than Hilbert — a recursive descent rather than bit
+twiddling — which two orders of magnitude fewer cells more than repays.
+
+## The discontinuous shapes
+
+The curve is discontinuous on 506 of the 2304 shapes up to 48×48: consecutive indices land
+two cells apart instead of one. The mapping is still a bijection, so every point gets its own
+cell and nothing visibly breaks — but the point of a curve is that neighbours along it are
+neighbours in the plane, and collision resolution walks the index assuming exactly that.
+
+Every failing shape has an **even short side and an odd long side**, and nothing outside that
+family fails. `gilbert_dimensions` therefore steps off it by growing the long side by one — a
+single extra row or column.
+
+Passing `cols` and `rows` explicitly bypasses that check, so an explicit grid can still land on
+a discontinuous shape.
+
+## Output space
+
+Integer `[column, row]` cells on the `width × height` lattice.
+
+## References
+
+<Reference
+    authors="Jakub Červený"
+    title="gilbert — space-filling curve for rectangular domains of arbitrary size"
+    year="2018"
+    url="https://github.com/jakubcerveny/gilbert"
+    note="The algorithm this method implements. It has no accompanying paper; the repository is the source. hagrid's implementation follows it closely enough to be treated as derived from it, so it carries the BSD 2-Clause licence, reproduced in THIRD-PARTY.md — the one technique here with a third-party licence obligation."
+/>
+
+<Reference
+    authors="David Hilbert"
+    title="Ueber die stetige Abbildung einer Linie auf ein Flächenstück"
+    venue="Mathematische Annalen"
+    volume="38"
+    pages="459–460"
+    year="1891"
+    doi="10.1007/BF01199431"
+    note="The curve this one generalizes."
+/>

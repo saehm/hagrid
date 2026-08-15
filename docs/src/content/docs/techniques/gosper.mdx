@@ -1,0 +1,162 @@
+---
+title: Gosper
+description: Snaps points to a Gosper curve cell, producing a hexagonal grid.
+sidebar:
+    order: 3
+---
+
+import GridDemo from "../../../components/GridDemo.svelte";
+import Math from "../../../components/Math.astro";
+import Reference from "../../../components/Reference.svelte";
+
+Gosper uses the Gosper curve, so the cells are hexagons rather than rectangles. A level-<Math tex="L" />
+curve has <Math tex="7^L" /> cells, arranged in the fractal "Gosper island" that the curve fills.
+
+Unlike the lattice methods, Gosper returns cell centres **in the input's own coordinate
+range**.
+
+<GridDemo client:visible method="gosper" n={300} />
+
+## Parameters
+
+| name | default | meaning |
+| ---- | ---- | ---- |
+| `whitespace` | `1` | spare cells beyond the point count |
+| `pluslevel` | `0` | extra curve levels — each one costs **seven times** the cells |
+| `orientation` | `"flat"` | which way up the hexagons sit |
+
+```js
+const { positions } = hagrid.gridify(data, "gosper", { whitespace: 1.5 });
+const positions = hagrid.gridify_gosper(data, { level: 4, orientation: "pointy" });
+```
+
+Because a level costs <Math tex="7\times" /> the cells, ask for slack with `whitespace` rather
+than `pluslevel`.
+
+## Hexagons pack round glyphs better
+
+The hexagonal lattice is not only a different look. If what you are placing in each cell is
+*round* — a circle, a radial glyph, anything bounded by its own circumcircle — a hexagonal grid
+fits a larger one than a square grid of the same cell area.
+
+Each Gosper cell has **six** equidistant neighbours where a square cell has four, and the
+distance between centres is larger for the same area:
+
+| lattice | equidistant neighbours | largest round glyph |
+| ---- | ---- | ---- |
+| square (Hilbert, Gilbert, DGrid) | 4 | 1.000 |
+| hexagonal (Gosper) | 6 | **1.075** |
+
+That figure is exact rather than empirical. A regular hexagon of area <Math tex="A" /> has its
+centres <Math tex="\sqrt{2A / \sqrt{3}}" /> apart, against <Math tex="\sqrt{A}" /> for a square
+of the same area, so the largest circle that fits in each grows by
+
+<Math
+    display
+    tex="\frac{\sqrt{2A/\sqrt{3}}}{\sqrt{A}} = \sqrt{\frac{2}{\sqrt{3}}} \approx 1.0746"
+    caption="Measured against the library's own cells it comes back as 1.0746."
+/>
+
+**7.5% more diameter is 15.5% more glyph area, free**, for the same number of cells over the same
+region. It is the same fact as the classic circle-packing densities:
+
+<Math
+    display
+    tex="\eta_{\text{hex}} = \frac{\pi}{2\sqrt{3}} \approx 0.9069 \qquad \text{against} \qquad \eta_{\text{square}} = \frac{\pi}{4} \approx 0.7854"
+    caption="The share of the plane covered when equal circles are packed on each lattice."
+/>
+
+The advice inverts for glyphs that are not round. A square glyph fills a square cell exactly, and
+in a hexagon the corners go to waste — so a bar chart, a spectrogram or a stacked column is
+better served by Hilbert or Gilbert, and a flower, a star or a pie by Gosper. Match the
+lattice to the shape of what sits in it.
+
+## Hexagon orientation
+
+`"pointy"` puts neighbours at multiples of 60°, `"flat"` at 30° off those. They are the same
+lattice turned by 30° — the basis sends axial `(1, 0)` to 0° and 30° respectively, at equal
+length. The default is `"flat"`, the paper's own lattice.
+
+```js
+hagrid.gosper_curve(level, "pointy");
+hagrid.gridify_gosper(data, { level, orientation: "pointy" });
+hagrid.gosper_encode(p, level, size, "pointy");
+```
+
+Because the rotation is rigid, cell ordering and step length are unchanged and indexing
+round-trips exactly in either orientation. Note that switching turns the lattice *underneath*
+the data rather than carrying each point to a matching cell, so points are reassigned — that
+is usually the point of the option. Toggle it in the demo and watch the assignment change.
+
+## Indexing directly
+
+```js
+const index = hagrid.gosper_encode([x, y], level, size);  // 6.6 M/s
+const [cx, cy] = hagrid.gosper_decode(index, level, size); // 8.8 M/s
+const cells = hagrid.gosper_curve(level, "flat", size);
+const size = hagrid.gosper_size(data, level);
+```
+
+The implementation is the direct indexing of Uher et al.: it computes a curve index
+arithmetically in `O(level)` and never materializes anything. `gosper_curve` exists only for
+drawing the grid; indexing does not go through it.
+
+`gosper_encode` returns `-1` for a point outside the island. A contained point always
+finishes its climb on the root hexagon `(0, 0)`, so anything that does not is out of bounds —
+without that check an outside point folds onto an arbitrary interior cell, very often one at
+the opposite end of the curve.
+
+## The island is centred on the origin
+
+`gosper_size` scales the island so the data's bounding circle fits inside its inscribed
+circle, and that only holds about a **shared centre**. `gridify_gosper` therefore centres the
+data on the origin and shifts the result back. If you call `gosper_encode` yourself, you must
+do the same — for ordinary data like `[0,100]²`, centred at `(50,50)`, most points otherwise
+sit off the tile entirely.
+
+## When it goes wrong
+
+**Elongated data.** Gosper fits its island isotropically, so it does not preserve the
+data's aspect ratio: a 1000×10 dataset comes back at aspect 2.8 rather than 100. Use
+[Gilbert](/techniques/gilbert/) for those.
+
+**Too small a level.** A point that falls outside the island throws rather than being
+silently folded inward. Raise `whitespace`.
+
+## References
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+    note="The method this page documents."
+/>
+
+<Reference
+    authors="Vojtěch Uher, Petr Gajdoš, Václav Snášel, Yu-Chi Lai and Michal Radecký"
+    title="Hierarchical Hexagonal Clustering and Indexing"
+    venue="Symmetry"
+    volume="11"
+    issue="6"
+    pages="731"
+    year="2019"
+    doi="10.3390/sym11060731"
+    note="The arithmetic indexing used here, which computes a curve index in O(level) without materializing the curve."
+/>
+
+<Reference
+    authors="Martin Gardner"
+    title="Mathematical Games: In which “monster” curves force redefinition of the word “curve”"
+    venue="Scientific American"
+    volume="235"
+    issue="6"
+    pages="124–133"
+    year="1976"
+    doi="10.1038/scientificamerican1276-124"
+    note="Where the curve was first described in print, as Bill Gosper's flowsnake."
+/>

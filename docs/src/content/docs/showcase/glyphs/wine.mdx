@@ -1,0 +1,85 @@
+---
+title: Wine
+description: Star glyphs against bar glyphs on the same data — silhouettes versus sequences.
+sidebar:
+    order: 2
+---
+
+import DatasetShowcase from "../../../../components/DatasetShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+import wine from "../../../../data/wine-2d.json";
+
+178 wines from three cultivars grown in the same region of Italy, each put through **thirteen**
+chemical measurements — alcohol, malic acid, magnesium, flavanoids, colour intensity, hue,
+proline and six more.
+
+A projection turns those thirteen numbers into two. The cultivars separate cleanly, which is the
+headline, but it is also all you get: the plot can tell you *that* a wine belongs with its
+neighbours and nothing about *why*. Thirteen numbers went in and a position came out.
+
+With four measurements you can nearly cheat them into position, colour and size. With thirteen
+you cannot — there is no scatterplot that shows thirteen variables. A glyph is the only way to
+keep them, and a glyph needs room, which is the whole argument for gridding.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): the thirteen columns
+are standardised, then `new druid.UMAP(Z, { seed: 7 })`.
+`node scripts/build-dataset.mjs WINE UMAP 7` regenerates it.
+
+## As stars
+
+One spoke per measurement, clockwise from the top, each scaled against that column's range across
+the whole dataset. The outline is the wine's profile:
+
+<DatasetShowcase client:visible data={wine} glyph_kind="star" />
+
+A star is read as a **silhouette**. You do not decode thirteen spokes one at a time; you see a
+shape and match it against its neighbours, and what registers is lopsidedness — a wine heavy on
+one side of the circle against one that is evenly round.
+
+## As bars
+
+The same thirteen numbers, on a shared baseline and a shared scale, left to right in a fixed
+order:
+
+<DatasetShowcase client:visible data={wine} glyph_kind="bars" />
+
+A bar chart is read as a **sequence**. Position along the row is what identifies a measurement,
+so you can find the flavanoid bar and compare it across glyphs — which is exactly the thing the
+star makes hard, because a spoke's angle is a poorer positional cue than a slot in a row.
+
+## Which to reach for
+
+Neither wins outright, and the choice follows from the question:
+
+| | star | bars |
+| ---- | ---- | ---- |
+| overall similarity, at a glance | **good** — one silhouette | poor — thirteen comparisons |
+| reading one named measurement | poor — which angle was hue? | **good** — count along the row |
+| survives shrinking | **good** — outline persists | poor — bars merge into a block |
+| many columns | crowds near the centre | stays legible, gets wide |
+
+At the sizes a grid affords here, the star holds up better: it degrades into a blob that is still
+comparable, where the bars degrade into a smear that is not. Reach for bars when the reader has a
+specific column in mind and needs to look it up rather than take the whole profile in.
+
+## References
+
+<Reference
+    authors="M. Forina, R. Leardi, C. Armanino and S. Lanteri"
+    title="Wine"
+    venue="UCI Machine Learning Repository"
+    year="1991"
+    url="https://archive.ics.uci.edu/dataset/109/wine"
+    note="178 wines from three cultivars, thirteen chemical measurements. Loaded through @saehrimnir/mistle."
+/>
+
+<Reference
+    authors="Rene Cutura, Cristina Morariu, Zhanglin Cheng, Yunhai Wang, Daniel Weiskopf and Michael Sedlmair"
+    title="Hagrid: using Hilbert and Gosper curves to gridify scatterplots"
+    venue="Journal of Visualization"
+    volume="25"
+    issue="6"
+    pages="1291–1307"
+    year="2022"
+    doi="10.1007/s12650-022-00854-7"
+/>

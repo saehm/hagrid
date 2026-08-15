@@ -1,0 +1,62 @@
+---
+title: Wheat kernels
+description: Drawing the object itself, rather than a chart of its measurements.
+sidebar:
+    order: 4
+---
+
+import SeedsShowcase from "../../../../components/SeedsShowcase.svelte";
+import DatasetShowcase from "../../../../components/DatasetShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+import seeds from "../../../../data/seeds-2d.json";
+
+210 wheat kernels from three varieties — Kama, Rosa and Canadian — X-rayed and measured on
+seven geometric properties: area, perimeter, compactness, kernel length and width, asymmetry,
+and the length of the groove.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): the seven columns
+are standardised, then `new druid.UMAP(Z, { seed: 11 })`.
+`node scripts/build-dataset.mjs openml:1499 UMAP 11` regenerates it.
+
+<SeedsShowcase client:visible />
+
+Each kernel is drawn as a kernel. Rather than putting the seven numbers on spokes, each one
+drives the property of the grain it actually describes:
+
+| measurement | what it draws |
+| ---- | ---- |
+| area | overall size |
+| length & width | how slender or plump |
+| compactness | how full the outline is between base and tip |
+| asymmetry | how far the tip leans off the axis |
+| groove length | the crease down the middle |
+| perimeter | outline weight — a long perimeter for the area means a ragged edge |
+
+The varieties differ mostly in *size*: Rosa kernels are simply bigger, Canadian ones small and
+pale. That is a case where the glyphs earn their keep in an unusual way — the projection
+separates the varieties perfectly well, but only the glyphs tell you the separation is largely a
+size effect rather than a shape one.
+
+### Drawing the thing itself
+
+Compare the same data on the general-purpose star glyph:
+
+<DatasetShowcase client:visible data={seeds} glyph_kind="star" />
+
+The star is more precise — you can read a single measurement off a spoke, which you cannot do
+from a kernel's outline. But it is slower to take in, and at small sizes the spokes blur into a
+rough disc while the kernels stay recognisably plump or slender. When the data describes a
+physical thing, drawing that thing tends to survive shrinking better, because the reader already
+knows what they are looking at.
+
+## References
+
+<Reference
+    authors="Małgorzata Charytanowicz, Jerzy Niewczas, Piotr Kulczycki, Piotr A. Kowalski, Szymon Łukasik and Sławomir Żak"
+    title="Complete Gradient Clustering Algorithm for Features Analysis of X-ray Images"
+    venue="Information Technologies in Biomedicine"
+    pages="15–24"
+    year="2010"
+    doi="10.1007/978-3-642-13105-9_2"
+    note="The seeds dataset, OpenML id 1499."
+/>

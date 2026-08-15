@@ -1,0 +1,88 @@
+---
+title: Heartbeats
+description: When the item is a curve, the glyph is the curve — no encoding required.
+sidebar:
+    order: 6
+---
+
+import EcgShowcase from "../../../../components/EcgShowcase.svelte";
+import Reference from "../../../../components/Reference.svelte";
+
+264 heartbeats from a twenty-hour ECG, each 140 samples long, sorted into five types by a
+cardiologist: normal beats and four ways a beat goes wrong.
+
+Projected with [DruidJS](https://www.npmjs.com/package/@saehrimnir/druidjs): the 140 samples are
+taken as they are — already z-normalised and R-peak aligned, so plain euclidean distance beat
+DTW when the two were compared —
+then `new druid.TSNE(Z, { seed: 1, perplexity: 20, epsilon: 5 })`. `pnpm ecg` regenerates it,
+and `--sweep` re-runs the search that chose those parameters.
+
+<EcgShowcase client:visible />
+
+## No encoding at all
+
+Every other glyph in this section is a decision. A flower maps four measurements onto petals and
+sepals; a star puts each column on a spoke; a stacked column turns percentages into bands. Each
+of those is a choice about how numbers should look, and each can be argued with.
+
+Here the item already *is* a picture. A heartbeat is a curve, so the glyph is the curve, drawn
+small. Nothing is mapped, and there is nothing to explain in a legend beyond the axes. That makes
+this the cleanest version of the argument in the whole section: the projection is computed from
+these traces, and what the plot shows you is the traces.
+
+You can see the classes before reading any label — a normal beat is a narrow spike, the
+ventricular ones are broader and displaced. All the glyphs share one vertical scale, so a tall
+beat really is a tall beat rather than one that was stretched to fit.
+
+A trace is wide and flat, not round, so this is a case where a **square** lattice is the better
+host: a rectangular glyph fills a rectangular cell, where a hexagon would waste its corners.
+That is the opposite of the [flower glyphs](/showcase/glyphs/iris/), which are round and do better on
+Gosper's hexagons — [the geometry is on the Gosper page](/techniques/gosper/).
+
+## The sample is deliberately unbalanced-ish
+
+The dataset is heavily skewed — 2,919 normal beats against 24 unclassifiable ones. Taking sixty
+of each type where sixty exist, and all of them where they do not, gives 60/60/60/60/24. That
+keeps the rare types visible instead of drowning them, at the cost of no longer showing the real
+prevalence.
+
+## What the projection was told to measure
+
+Time series get reflexively handed to dynamic time warping, on the reasoning that two beats
+should count as similar even if one runs slightly early. That reasoning does not apply here:
+these beats arrive already normalised and aligned on the R peak, so there is no drift left for
+warping to absorb.
+
+Measured rather than assumed — how often a beat's ten nearest neighbours share its type:
+
+| distance | agreement |
+| ---- | ---- |
+| euclidean | **57.0%** |
+| dynamic time warping | 52.9% |
+
+Warping makes it *worse*, and for a good reason: the broad QRS complex of a ventricular beat is a
+genuine difference in shape, and warping is designed to forgive exactly that kind of difference.
+Given aligned inputs it removes signal rather than noise. So the projection uses plain euclidean
+distance on the raw traces.
+
+## References
+
+<Reference
+    authors="Yanping Chen, Eamonn Keogh, Bing Hu, Nurjahan Begum, Anthony Bagnall, Abdullah Mueen and Gustavo Batista"
+    title="The UCR Time Series Classification Archive"
+    year="2015"
+    url="https://www.cs.ucr.edu/~eamonn/time_series_data/"
+    note="ECG5000, derived from a 20-hour ECG in PhysioNet's BIDMC Congestive Heart Failure database. The five original classes survive here; the copies on OpenML are binarised."
+/>
+
+<Reference
+    authors="Ary L. Goldberger and others"
+    title="PhysioBank, PhysioToolkit, and PhysioNet: Components of a New Research Resource for Complex Physiologic Signals"
+    venue="Circulation"
+    volume="101"
+    issue="23"
+    pages="e215–e220"
+    year="2000"
+    doi="10.1161/01.CIR.101.23.e215"
+    note="The source recording."
+/>
