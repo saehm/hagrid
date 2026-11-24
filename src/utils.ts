@@ -64,8 +64,8 @@ export function get_scales<T = Point>(
     const Y_span = Y_max - Y_min;
     let [x_min, x_max] = extent(data, x);
     let [y_min, y_max] = extent(data, y);
-    const x_span = x_max - x_min;
-    const y_span = y_max - y_min;
+    let x_span = x_max - x_min;
+    let y_span = y_max - y_min;
 
     if (keep_aspect_ratio) {
         let o: number;
@@ -78,12 +78,25 @@ export function get_scales<T = Point>(
             x_min -= o;
             x_max += o;
         }
+        // scale by the padded extent, or the padding only shifts the data
+        x_span = x_max - x_min;
+        y_span = y_max - y_min;
     }
 
     const f = round ? Math.round : (d: number) => d;
-    const x_scale: Accessor<T> = (d) => f(((x(d) - x_min) / x_span) * X_span + X_min);
-    const y_scale: Accessor<T> = (d) => f(((y(d) - y_min) / y_span) * Y_span + Y_min);
-    return [x_scale, y_scale];
+    // A zero span (all data on one line, or a single point) would divide 0 by
+    // 0; centre that axis in its target range instead.
+    const axis = (
+        v: Accessor<T>,
+        min: number,
+        span: number,
+        Min: number,
+        Span: number,
+    ): Accessor<T> =>
+        span === 0
+            ? () => f(Min + Span / 2)
+            : (d) => f(((v(d) - min) / span) * Span + Min);
+    return [axis(x, x_min, x_span, X_min, X_span), axis(y, y_min, y_span, Y_min, Y_span)];
 }
 
 /** Returns `[min, max]` of `accessor` over `data`. */

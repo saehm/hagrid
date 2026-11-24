@@ -21,6 +21,10 @@ function check_size(size: number): void {
     }
 }
 
+function in_grid(v: number, size: number): boolean {
+    return Number.isInteger(v) && v >= 0 && v < size;
+}
+
 /**
  * Maps a grid cell to its position along the Hilbert curve.
  *
@@ -28,9 +32,17 @@ function check_size(size: number): void {
  * @param size - Side length of the grid; must be a power of two.
  * @returns The curve index, in `[0, size²)`.
  * @throws If `size` is not a power of two, or is above {@link HILBERT_MAX_LEVEL}.
+ * @throws If either component is not an integer in `[0, size)`.
  */
 export function hilbert_encode([px, py]: Point, size: number): number {
     check_size(size);
+    // The bit tests below read only the low bits, so a coordinate outside the
+    // grid would otherwise wrap silently onto some unrelated cell.
+    if (!in_grid(px, size) || !in_grid(py, size)) {
+        throw new RangeError(
+            `hilbert: point [${px}, ${py}] is not an integer cell in [0, ${size})`,
+        );
+    }
     let n = 0;
     for (let s = size >>> 1; s > 0; s >>>= 1) {
         const rx = (px & s) > 0 ? 1 : 0;

@@ -11,6 +11,7 @@ import {
     hilbert_decode,
     hilbert_encode,
 } from "../src/hilbert.js";
+import { gridify } from "../src/gridify.js";
 
 const LEVELS = [1, 2, 3, 4, 5];
 
@@ -130,5 +131,78 @@ describe("hilbert rejects sizes it cannot index", () => {
         const size = 2 ** (HILBERT_MAX_LEVEL + 1);
         expect(() => hilbert_encode([0, 0], size)).toThrow(/indexed exactly/);
         expect(() => hilbert_decode(0, size)).toThrow(/indexed exactly/);
+    });
+});
+
+describe("keep_aspect_ratio keeps a wide dataset wide", () => {
+    // A 4:1 strip of points with plenty of free cells, so the collision
+    // resolution has no reason to spread them over the whole square.
+    const D: [number, number][] = [];
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 2; j++) D.push([i * 4, j]);
+    const span = (P: readonly [number, number][]) =>
+        Math.max(...P.map(([, y]) => y)) - Math.min(...P.map(([, y]) => y));
+
+    it("gridify_hilbert pads the short axis instead of stretching it", () => {
+        const level = 5;
+        const stretched = gridify_hilbert(D, { level });
+        const kept = gridify_hilbert(D, { level, keep_aspect_ratio: true });
+        for (const [x, y] of kept) {
+            expect(x).toBeGreaterThanOrEqual(0);
+            expect(x).toBeLessThan(2 ** level);
+            expect(y).toBeGreaterThanOrEqual(0);
+            expect(y).toBeLessThan(2 ** level);
+        }
+        expect(span(kept)).toBeLessThan(span(stretched) / 2);
+        // padding is split evenly, so the strip sits in the middle rows
+        const mid = (2 ** level - 1) / 2;
+        const mean_y = kept.reduce((s, [, y]) => s + y, 0) / kept.length;
+        expect(Math.abs(mean_y - mid)).toBeLessThanOrEqual(1);
+    });
+
+    it("gridify passes the aspect ratio through to hilbert", () => {
+        const off = gridify(D, "hilbert", { pluslevel: 2 }).positions;
+        const on = gridify(D, "hilbert", { pluslevel: 2, keep_aspect_ratio: true }).positions;
+        expect(span(on)).toBeLessThan(span(off) / 2);
+    });
+});
+
+describe("hilbert_encode rejects points off the grid", () => {
+    const size = 8;
+    for (const p of [
+        [-1, 0],
+        [0, -1],
+        [size, 0],
+        [0, size],
+        [1.5, 2],
+        [NaN, 0],
+    ] as [number, number][]) {
+        it(`throws for [${p}]`, () => {
+            expect(() => hilbert_encode(p, size)).toThrow(RangeError);
+        });
+    }
+});
+
+describe("gridify_hilbert handles data with no extent on an axis", () => {
+    const level = 4;
+    const mid = Math.round((2 ** level - 1) / 2);
+
+    it("a horizontal line lands on the middle row", () => {
+        const D: [number, number][] = [0, 1, 2, 3].map((x) => [x, 5]);
+        const Y = gridify_hilbert(D, { level });
+        expect(Y.map(([x]) => x)).toEqual([0, 5, 10, 15]);
+        for (const [, y] of Y) expect(y).toBe(mid);
+    });
+
+    it("a vertical line lands on the middle column", () => {
+        const D: [number, number][] = [0, 1, 2, 3].map((y) => [5, y]);
+        const Y = gridify_hilbert(D, { level });
+        expect(Y.map(([, y]) => y)).toEqual([0, 5, 10, 15]);
+        for (const [x] of Y) expect(x).toBe(mid);
+    });
+
+    it("a single point lands in the centre", () => {
+        for (const keep_aspect_ratio of [false, true]) {
+            expect(gridify_hilbert([[3, 3]], { level, keep_aspect_ratio })).toEqual([[mid, mid]]);
+        }
     });
 });

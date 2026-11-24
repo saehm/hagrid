@@ -1,4 +1,4 @@
-import { get_bounds, remap } from "./utils.js";
+import { get_bounds } from "./utils.js";
 import { gridify_hilbert } from "./hilbert.js";
 import { gridify_gilbert } from "./gilbert.js";
 import { gridify_gridfit } from "./gridfit.js";
@@ -115,11 +115,10 @@ export function gridify(
             const whitespace = parameters.whitespace ?? 1;
             const level =
                 Math.ceil(Math.log2(data.length * whitespace) / Math.log2(4)) + pluslevel;
-            const size = Math.pow(2, level);
-            const { x: ux, y: uy, width: w, height: h } = get_bounds(data);
-            const D = data.map((d) => remap(d, [ux, uy, w, h], [0, 0, size, size]));
+            // gridify_hilbert scales the data onto the grid itself; normalising
+            // each axis here first would throw away the aspect ratio it keeps.
             return timed(() =>
-                gridify_hilbert(D, {
+                gridify_hilbert(data, {
                     level,
                     keep_aspect_ratio: parameters.keep_aspect_ratio,
                 }),
