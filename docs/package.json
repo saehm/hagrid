@@ -21,20 +21,20 @@
     },
     "dependencies": {
         "@astrojs/markdown-remark": "^7.3.10",
-        "@astrojs/starlight": "^0.41.11",
+        "@astrojs/starlight": "^0.43.1",
         "@astrojs/svelte": "^9.1.6",
-        "@saehrimnir/druidjs": "0.9.0",
+        "@saehrimnir/druidjs": "0.10.0",
         "@saehrimnir/hagrid": "workspace:*",
         "@saehrimnir/mistle": "0.3.0",
         "astro": "^7.4.13",
         "d3-delaunay": "^6.0.6",
-        "katex": "^0.18.4",
+        "katex": "^0.19.1",
         "rehype-katex": "^7.0.1",
         "remark-math": "^6.0.0",
         "sharp": "^0.35.5",
-        "starlight-llms-txt": "^0.11.0",
+        "starlight-llms-txt": "^0.12.0",
         "starlight-typedoc": "^0.23.3",
-        "starlight-versions": "^0.9.1",
+        "starlight-versions": "^0.10.2",
         "svelte": "^5.59.1",
         "typedoc": "^0.28.20",
         "typedoc-plugin-markdown": "^4.14.1"
@@ -42,6 +42,6 @@
     "devDependencies": {
         "@astrojs/check": "^0.9.12",
         "@saehrimnir/sickle": "0.2.0",
-        "typescript": "^5.9.3"
+        "typescript": "^6.0.3"
     }
 }

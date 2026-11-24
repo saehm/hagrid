@@ -19,6 +19,10 @@ const base = "/hagrid";
 export default defineConfig({
     site,
     base,
+    // Starlight before 0.43 forced the `where` strategy on the whole site, and
+    // custom.css is written against those low-specificity selectors. Keep it
+    // rather than re-audit every override against attribute selectors.
+    scopedStyleStrategy: "where",
     /*
      * Math is written as TeX in the Markdown itself — `$…$` inline, `$$…$$`
      * displayed — and rendered to HTML at build time by KaTeX. Nothing ships to
