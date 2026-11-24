@@ -15,8 +15,8 @@ authors:
 repository-code: "https://github.com/saehm/hagrid"
 url: "https://saehm.github.io/hagrid/"
 license: LGPL-3.0-or-later
-version: 0.2.0
-date-released: "2026-08-15"
+version: 0.2.1
+date-released: "2026-11-24"
 keywords:
   - scatterplot
   - overlap-removal
